@@ -8,13 +8,14 @@
 #
 from logging import raiseExceptions
 import xarray as xr
+import numpy as np
+from pathlib import PurePath
 import os
 
 
 # grid class
 class Grid:
-
-    #Import methods
+    # Import methods
     from ._populate_exodus import populate_exo_data
     from ._populate_exodus2 import populate_exo2_data
     from ._populate_ugrid import read_and_populate_ugrid_data
@@ -23,22 +24,62 @@ class Grid:
 
     # Load the grid file specified by file.
     # The routine will automatically detect if it is a UGrid, SCRIP, Exodus, or shape file.
-    def __init__(self, filename):
-        self.fname = filename
-        self.islatlon = False
-        self.concave = False
-        self.meshFileType = ""
+    def __init__(self, *args, **kwargs):
+
+        # initialize possible variables
+        self.filepath = None
+        self.gridspec = None
+        self.vertices = None
+        self.islatlon = None
+        self.concave = None
+        self.meshFileType = None
+
+        self.grid_ds = None
+
+        # determine initialization type
+        in_type = type(args[0])
+        # print(in_type, "intype", os.getcwd(), args[0], os.path.isfile(args[0]))
+
+        # initialize for vertices
+        if in_type is np.ndarray:
+            self.vertices = args[0]
+            self._init_vert()
+
+        # initialize for file
+        elif in_type is str and os.path.isfile(args[0]):
+            self.filepath = args[0]
+            self._init_file()
+
+        # initialize for gridspec (??)
+        elif in_type is str:
+            self.gridspec = args[0]
+            self._init_gridspec()
+
+        else:
+            pass
+
+    # vertices init
+    def _init_vert(self):
+        print("initializing with vertices")
+
+    # gridspec init
+    def _init_gridspec(self):
+        print("initializing with gridspec")
+
+    # file init
+    def _init_file(self):
+        print("initializing from file")
 
         # find the file type
         try:
             # extract the file name and extension
-            split = os.path.splitext(filename)
-            file_name = split[0]
-            file_extension = split[1]
+            path = PurePath(self.filepath)
+            file_extension = path.suffix
+
             # open dataset with xarray
-            self.grid_ds = xr.open_dataset(filename)
+            self.grid_ds = xr.open_dataset(self.filepath)
         except (TypeError, AttributeError) as e:
-            msg = str(e) + ': {}'.format(filename)
+            msg = str(e) + ': {}'.format(self.filepath)
             print(msg)
             raise RuntimeError(msg)
             exit
@@ -50,12 +91,12 @@ class Grid:
             elif file_extension == ".shp":
                 self.meshFileType = "shp"
             else:
-                msg = str(e) + ': {}'.format(filename)
+                msg = str(e) + ': {}'.format(self.filepath)
                 print(msg)
                 raise RuntimeError(msg)
                 exit
 
-        print("Done loading: ", filename)
+        print("Done loading: ", self.filepath)
 
         # Detect mesh file type:
         # if ds has coordx - call it exo1 format
@@ -65,20 +106,20 @@ class Grid:
         try:
             self.grid_ds.coordx
             self.meshFileType = "exo1"
-        except (AttributeError) as e:
+        except AttributeError as e:
             pass
         try:
             self.grid_ds.grid_center_lon
             self.meshFileType = "scrip"
-        except (AttributeError) as e:
+        except AttributeError as e:
             pass
         try:
             self.grid_ds.coord
             self.meshFileType = "exo2"
-        except (AttributeError) as e:
+        except AttributeError as e:
             pass
 
-        if self.meshFileType == "":
+        if self.meshFileType is None:
             print("mesh file not supported")
 
         print("Mesh file type is", self.meshFileType)
@@ -94,21 +135,16 @@ class Grid:
         elif self.meshFileType == "scrip":
             self.populate_scrip_data(self.grid_ds)
         elif self.meshFileType == "ugrid":
-            self.read_and_populate_ugrid_data(filename)
+            self.read_and_populate_ugrid_data(self.filepath)
         elif self.meshFileType == "shp":
-            self.read_and_populate_shpfile_data(filename)
+            self.read_and_populate_shpfile_data(self.filepath)
 
-    # returns the filename of the grid
-    def get_filename(self):
-        return self.fname
-
-    # returns the filename of the grid
-    def get_filename(self):
-        return self.fname
-
-    # renames the grid
+    # renames the grid file
     def rename_file(self, filename):
-        self.fname = filename
+        path = PurePath(self.filepath)
+        old_filename = path.name
+        new_filepath = path.parent / filename
+        self.filepath = str(new_filepath)
 
     # A flag indicating the grid is a latitude longitude grid.
     def islatlon(self):
@@ -119,19 +155,8 @@ class Grid:
         return self.isconcave
 
     # DataSet containing uxarray.Grid properties
-    def ds():
+    def ds(self):
         return self.grid_ds
-        # self.grid_ds["Mesh2_node_x"] = self.grid_ds.coordx.values
-        # self.grid_ds["Mesh2_node_y"] = self.grid_ds.coordy.values
-        # self.grid_ds["Mesh2_node_z"] = self.grid_ds.coordz.values
-
-        # set faces
-
-        # self.grid_ds["Mesh2_faces"]
-
-    # # Create a grid with one face with vertices specified by the given argument.
-    # def __init__(self, verts):
-    #     pass
 
     # Write a uxgrid to a file with specified format.
     def write(self, outfile, format):
