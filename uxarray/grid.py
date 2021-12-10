@@ -90,6 +90,8 @@ class Grid:
                 self.meshFileType = "ugrid"
             elif file_extension == ".shp":
                 self.meshFileType = "shp"
+            elif file_extension == ".ug":
+                self.meshFileType = ".ug"
             else:
                 msg = str(e) + ': {}'.format(self.filepath)
                 print(msg)
@@ -131,6 +133,7 @@ class Grid:
         if self.meshFileType == "exo1":
             self.populate_exo_data(self.grid_ds)
         elif self.meshFileType == "exo2":
+            self._init_mesh2()
             self.populate_exo2_data(self.grid_ds)
         elif self.meshFileType == "scrip":
             self.populate_scrip_data(self.grid_ds)
@@ -138,6 +141,21 @@ class Grid:
             self.read_and_populate_ugrid_data(self.filepath)
         elif self.meshFileType == "shp":
             self.read_and_populate_shpfile_data(self.filepath)
+
+    # initialize mesh2 DataVariable for uxarray
+    def _init_mesh2(self):
+        # set default values and initialize Datavariable "Mesh2" for uxarray
+        self.grid_ds["Mesh2"] = xr.DataArray(
+            data=0,
+            attrs={
+                "cf_role": "mesh_topology",
+                "long_name": "Topology data of 2D unstructured mesh",
+                "topology_dimension": -1,
+                "node_coordinates": "Mesh2_node_x Mesh2_node_y",
+                "node_dimension": "nMesh2_node",
+                "face_node_connectivity": "Mesh2_face_nodes",
+                "face_dimension": "nMesh2_face"
+            })
 
     # renames the grid file
     def rename_file(self, filename):
@@ -159,8 +177,8 @@ class Grid:
         return self.grid_ds
 
     # Write a uxgrid to a file with specified format.
-    def write(self, outfile, format):
-        pass
+    def write(self, outfile, format=""):
+        self.grid_ds.to_netcdf(outfile)
 
     # Calculate the area of all faces.
     def calculate(self):

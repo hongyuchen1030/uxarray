@@ -38,6 +38,8 @@ class test_grid(TestCase):
         current_path = Path(os.path.dirname(os.path.realpath(__file__)))
         exo2_filename = current_path / "meshfiles" / "outCSne8.g"
         tgrid = ux.Grid(str(exo2_filename))
+        outfile = current_path / "write_test_outCSne8.ug"
+        tgrid.write(str(outfile))
 
     def test_load_scrip(self):
 
@@ -56,3 +58,15 @@ class test_grid(TestCase):
         current_path = Path(os.path.dirname(os.path.realpath(__file__)))
         shp_filename = current_path / "meshfiles" / "grid_file.shp"
         tgrid = ux.Grid(shp_filename)
+
+    def test_load_uxarray(self):
+
+        current_path = Path(os.path.dirname(os.path.realpath(__file__)))
+        ug_filename1 = current_path / "meshfiles" / "outCSne30.ug"
+        ug_filename2 = current_path / "meshfiles" / "outRLL1deg.ug"
+        ug_filename3 = current_path / "meshfiles" / "ov_RLL10deg_CSne4.ug"
+
+        tgrid1 = ux.Grid(str(ug_filename1))
+        tgrid2 = ux.Grid(str(ug_filename2))
+        tgrid3 = ux.Grid(str(ug_filename3))
+        # TODO: add checks after loading this native file format
