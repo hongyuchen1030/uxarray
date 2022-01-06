@@ -34,3 +34,12 @@ def populate_exo2_data(self, ds):
             # nothing specified set to m
             "units": "m",
         })
+    ds["Mesh2_face_nodes"] = xr.DataArray(
+        data=ds.connect1,
+        dims=["nMesh2_face", "nMaxMesh2_face_nodes"],
+        attrs={
+            "cf_role": "face_node_connectivity",
+            "start_index": 0 #TODO: fix this value
+        }
+    )
+

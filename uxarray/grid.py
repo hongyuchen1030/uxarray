@@ -77,7 +77,7 @@ class Grid:
             file_extension = path.suffix
 
             # open dataset with xarray
-            self.grid_ds = xr.open_dataset(self.filepath)
+            self.grid_ds = xr.open_dataset(self.filepath, mask_and_scale = False)
         except (TypeError, AttributeError) as e:
             msg = str(e) + ': {}'.format(self.filepath)
             print(msg)
@@ -120,6 +120,11 @@ class Grid:
             self.meshFileType = "exo2"
         except AttributeError as e:
             pass
+        try:
+            self.grid_ds.Mesh2
+            self.meshFileType = "ux"
+        except AttributeError as e:
+            pass
 
         if self.meshFileType is None:
             print("mesh file not supported")
@@ -139,6 +144,8 @@ class Grid:
             self.populate_scrip_data(self.grid_ds)
         elif self.meshFileType == "ugrid":
             self.read_and_populate_ugrid_data(self.filepath)
+        elif self.meshFileType == "ux":
+            self.populate_uxgrid_data(self.grid_ds)
         elif self.meshFileType == "shp":
             self.read_and_populate_shpfile_data(self.filepath)
 
@@ -199,3 +206,8 @@ class Grid:
     # Validate that the grid conforms to the UXGrid standards.
     def validate(self):
         pass
+
+    def populate_uxgrid_data(self, ds):
+        # return simple data from xarray load
+        return self.grid_ds
+        
