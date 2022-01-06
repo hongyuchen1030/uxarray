@@ -70,15 +70,3 @@ class test_grid(TestCase):
         tgrid2 = ux.Grid(str(ug_filename2))
         tgrid3 = ux.Grid(str(ug_filename3))
         # TODO: add checks after loading this native file format
-
-    def test_open_dataset(self):
-        current_path = Path(os.path.dirname(os.path.realpath(__file__)))
-        uds1_name = current_path / "meshfiles" / "ov_RLL10deg_CSne4.ug"
-        uds2_name = current_path / "meshfiles" / "outCSne8.g"
-        uds3_name = current_path / "meshfiles" / "outCSne30.ug"
-
-        uds1 = ux.open_dataset(uds1_name, "ux")
-        uds2 = ux.open_dataset(uds2_name, "exo2")
-        uds3 = ux.open_dataset(uds3_name, "ux")
-
-        print("This a xarray grid object with Mesh2 variables", uds1)

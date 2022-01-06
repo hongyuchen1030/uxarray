@@ -16,11 +16,11 @@ import os
 # grid class
 class Grid:
     # Import methods
-    from ._populate_exodus import populate_exo_data
-    from ._populate_exodus2 import populate_exo2_data
-    from ._populate_ugrid import read_and_populate_ugrid_data
-    from ._populate_shpfile import read_and_populate_shpfile_data
-    from ._populate_scrip import populate_scrip_data
+    from ._exodus import populate_exo_data
+    from ._exodus2 import populate_exo2_data
+    from ._ugrid import read_and_populate_ugrid_data
+    from ._shpfile import read_and_populate_shpfile_data
+    from ._scrip import populate_scrip_data
 
     # Load the grid file specified by file.
     # The routine will automatically detect if it is a UGrid, SCRIP, Exodus, or shape file.
@@ -171,24 +171,12 @@ class Grid:
         new_filepath = path.parent / filename
         self.filepath = str(new_filepath)
 
-    # A flag indicating the grid is a latitude longitude grid.
-    def islatlon(self):
-        return self.istlatlon
-
-    # A flag indicating the grid contains concave faces.
-    def isconcave(self):
-        return self.isconcave
-
-    # DataSet containing uxarray.Grid properties
-    def ds(self):
-        return self.grid_ds
-
     # Write a uxgrid to a file with specified format.
     def write(self, outfile, format=""):
         self.grid_ds.to_netcdf(outfile)
 
     # Calculate the area of all faces.
-    def calculate(self):
+    def calculate_total_face_area(self):
         pass
 
     # Build the node-face connectivity array.
