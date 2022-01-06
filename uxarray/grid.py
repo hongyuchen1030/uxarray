@@ -77,7 +77,7 @@ class Grid:
             file_extension = path.suffix
 
             # open dataset with xarray
-            self.grid_ds = xr.open_dataset(self.filepath, mask_and_scale = False)
+            self.grid_ds = xr.open_dataset(self.filepath, mask_and_scale=False)
         except (TypeError, AttributeError) as e:
             msg = str(e) + ': {}'.format(self.filepath)
             print(msg)
@@ -210,4 +210,3 @@ class Grid:
     def populate_uxgrid_data(self, ds):
         # return simple data from xarray load
         return self.grid_ds
-        

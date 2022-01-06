@@ -39,7 +39,5 @@ def populate_exo2_data(self, ds):
         dims=["nMesh2_face", "nMaxMesh2_face_nodes"],
         attrs={
             "cf_role": "face_node_connectivity",
-            "start_index": 0 #TODO: fix this value
-        }
-    )
-
+            "start_index": 0  #TODO: fix this value
+        })
