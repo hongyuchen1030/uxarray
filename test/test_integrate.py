@@ -19,5 +19,7 @@ class test_ux_integrate(TestCase):
     def test_open_dataset(self):
         current_path = Path(os.path.dirname(os.path.realpath(__file__)))
         uds1_name = current_path / "meshfiles" / "ov_RLL10deg_CSne4.ug"
-        uds1 = ux.open_dataset(uds1_name, "ux")
+        uds1 = ux.open_dataset(uds1_name, "ugrid")
+        uds2_name = current_path / "meshfiles" / "ov_RLL10deg_CSne4_vortex.nc"
+        uds2 = ux.open_dataset(uds1_name, "ugrid")
         uds1.Mesh2_face_nodes.ux_integrate()

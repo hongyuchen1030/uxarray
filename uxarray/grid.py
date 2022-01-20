@@ -16,11 +16,10 @@ import os
 # grid class
 class Grid:
     # Import methods
-    from ._exodus import populate_exo_data
-    from ._exodus2 import populate_exo2_data
-    from ._ugrid import read_and_populate_ugrid_data
-    from ._shpfile import read_and_populate_shpfile_data
-    from ._scrip import populate_scrip_data
+    from ._exodus import read_exodus, write_exodus
+    from ._ugrid import read_ugrid, write_ugrid
+    from ._shpfile import read_shpfile
+    from ._scrip import read_scrip
 
     # Load the grid file specified by file.
     # The routine will automatically detect if it is a UGrid, SCRIP, Exodus, or shape file.
@@ -68,8 +67,6 @@ class Grid:
 
     # file init
     def _init_file(self):
-        print("initializing from file")
-
         # find the file type
         try:
             # extract the file name and extension
@@ -98,16 +95,14 @@ class Grid:
                 raise RuntimeError(msg)
                 exit
 
-        print("Done loading: ", self.filepath)
-
         # Detect mesh file type:
-        # if ds has coordx - call it exo1 format
-        # if ds has coord - call it exo2 format
+        # if ds has coordx or coord - call it exo format
         # if ds has grid_size - call it SCRIP format
-        # if ds has ? read as shape file format
+        # if ds has ? read as shape file populate_scrip_dataformat
+        # TODO: add detection of shpfile
         try:
             self.grid_ds.coordx
-            self.meshFileType = "exo1"
+            self.meshFileType = "exo"
         except AttributeError as e:
             pass
         try:
@@ -117,37 +112,33 @@ class Grid:
             pass
         try:
             self.grid_ds.coord
-            self.meshFileType = "exo2"
+            self.meshFileType = "exo"
         except AttributeError as e:
             pass
         try:
             self.grid_ds.Mesh2
-            self.meshFileType = "ux"
+            self.meshFileType = "ugrid"
         except AttributeError as e:
             pass
 
         if self.meshFileType is None:
             print("mesh file not supported")
 
-        print("Mesh file type is", self.meshFileType)
+        print(self.filepath, " is of type: ", self.meshFileType)
 
         # Now set Mesh2 ds
         # exodus file is cartesian grid, must convert to lat/lon?
         # use - pyproj https://gis.stackexchange.com/questions/78838/converting-projected-coordinates-to-lat-lon-using-python?
 
-        if self.meshFileType == "exo1":
-            self.populate_exo_data(self.grid_ds)
-        elif self.meshFileType == "exo2":
+        if self.meshFileType == "exo":
             self._init_mesh2()
-            self.populate_exo2_data(self.grid_ds)
+            self.read_exodus(self.grid_ds)
         elif self.meshFileType == "scrip":
-            self.populate_scrip_data(self.grid_ds)
+            self.read_scrip(self.grid_ds)
         elif self.meshFileType == "ugrid":
-            self.read_and_populate_ugrid_data(self.filepath)
-        elif self.meshFileType == "ux":
-            self.populate_uxgrid_data(self.grid_ds)
+            self.read_ugrid(self.filepath)
         elif self.meshFileType == "shp":
-            self.read_and_populate_shpfile_data(self.filepath)
+            self.read_shpfile(self.filepath)
 
     # initialize mesh2 DataVariable for uxarray
     def _init_mesh2(self):
@@ -165,15 +156,13 @@ class Grid:
             })
 
     # renames the grid file
-    def rename_file(self, filename):
+    def saveas_file(self, filename):
         path = PurePath(self.filepath)
         old_filename = path.name
         new_filepath = path.parent / filename
         self.filepath = str(new_filepath)
-
-    # Write a uxgrid to a file with specified format.
-    def write(self, outfile, format=""):
-        self.grid_ds.to_netcdf(outfile)
+        self.write_ugrid(self.filepath)
+        print(self.filepath)
 
     # Calculate the area of all faces.
     def calculate_total_face_area(self):
@@ -195,6 +184,8 @@ class Grid:
     def validate(self):
         pass
 
-    def populate_uxgrid_data(self, ds):
-        # return simple data from xarray load
-        return self.grid_ds
+    def write(self, outfile, format=""):
+        if format == "ugrid":
+            self.write_ugrid(outfile)
+        else:
+            print("format not supported for writing")

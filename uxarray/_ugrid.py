@@ -1,2 +1,9 @@
-def read_and_populate_ugrid_data(self, filename):
-    print("open and read contents of ugrid file: ", filename)
+def read_ugrid(self, filename):
+    print("read_ugrid called: ", filename)
+    # return simple data from xarray load
+    return self.grid_ds
+
+
+# Write a uxgrid to a file with specified format.
+def write_ugrid(self, outfile):
+    self.grid_ds.to_netcdf(outfile)

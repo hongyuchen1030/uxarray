@@ -22,8 +22,8 @@ class test_dataset(TestCase):
         uds2_name = current_path / "meshfiles" / "outCSne8.g"
         uds3_name = current_path / "meshfiles" / "outCSne30.ug"
 
-        uds1 = ux.open_dataset(uds1_name, "ux")
-        uds2 = ux.open_dataset(uds2_name, "exo2")
-        uds3 = ux.open_dataset(uds3_name, "ux")
+        uds1 = ux.open_dataset(uds1_name, "ugrid")
+        uds2 = ux.open_dataset(uds2_name, "exo")
+        uds3 = ux.open_dataset(uds3_name, "ugrid")
 
         print("This a xarray grid object with Mesh2 variables", uds1)
