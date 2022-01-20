@@ -60,7 +60,6 @@ class test_grid(TestCase):
         tgrid2 = ux.Grid(str(ug_filename2))
         tgrid3 = ux.Grid(str(ug_filename3))
 
-
     # use external package to read?
     # https://gis.stackexchange.com/questions/113799/how-to-read-a-shapefile-in-python
     def test_read_shpfile(self):

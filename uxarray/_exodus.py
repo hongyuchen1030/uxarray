@@ -1,5 +1,6 @@
 import xarray as xr
 
+
 # Exodus Number is one-based.
 def read_exodus(self, ds):
     print("read_exodus called..")
@@ -77,7 +78,7 @@ def read_exodus(self, ds):
                 if k == "elem_type":
                     etype = v
             ds["Mesh2_face_nodes"] = xr.DataArray(
-                data=(ds.connect1[:]-1),
+                data=(ds.connect1[:] - 1),
                 dims=["nMesh2_face", "nMaxMesh2_face_nodes"],
                 attrs={
                     "cf_role": "face_node_connectivity",
@@ -86,6 +87,6 @@ def read_exodus(self, ds):
                         0  #NOTE: This might cause an error if numbering has holes
                 })
 
+
 def write_exodus(self, ds, filename):
     print("writing exodus file: ", filename)
-
