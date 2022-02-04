@@ -41,6 +41,14 @@ class test_grid(TestCase):
         outfile = current_path / "write_test_outCSne8.ug"
         tgrid.write(str(outfile), "ugrid")
 
+    def test_write_exodus(self):
+
+        current_path = Path(os.path.dirname(os.path.realpath(__file__)))
+        filename = current_path / "meshfiles" / "outCSne30.ug"
+        tgrid = ux.Grid(str(filename))
+        outfile = current_path / "ouCSne8_uxarray.exo"
+        tgrid.write(str(outfile), "exo")
+
     def test_read_scrip(self):
 
         current_path = Path(os.path.dirname(os.path.realpath(__file__)))
@@ -64,5 +72,5 @@ class test_grid(TestCase):
     # https://gis.stackexchange.com/questions/113799/how-to-read-a-shapefile-in-python
     def test_read_shpfile(self):
         current_path = Path(os.path.dirname(os.path.realpath(__file__)))
-        shp_filename = current_path / "meshfiles" / "grid_file.shp"
+        shp_filename = current_path / "meshfiles" / "grid_fire.shp"
         tgrid = ux.Grid(shp_filename)

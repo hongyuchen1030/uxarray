@@ -39,34 +39,39 @@ class Grid:
         in_type = type(args[0])
         # print(in_type, "intype", os.getcwd(), args[0], os.path.isfile(args[0]))
 
+        # check if this is a valid file:
+        if os.path.isfile(args[0]) == False:
+            print("File not found: ", args[0])
+            exit()
+
         # initialize for vertices
         if in_type is np.ndarray:
             self.vertices = args[0]
-            self._init_vert()
+            self.from_vert()
 
         # initialize for file
         elif in_type is str and os.path.isfile(args[0]):
             self.filepath = args[0]
-            self._init_file()
+            self.from_file()
 
         # initialize for gridspec (??)
         elif in_type is str:
             self.gridspec = args[0]
-            self._init_gridspec()
+            self.from_gridspec()
 
         else:
             pass
 
     # vertices init
-    def _init_vert(self):
+    def from_vert(self):
         print("initializing with vertices")
 
     # gridspec init
-    def _init_gridspec(self):
+    def from_gridspec(self):
         print("initializing with gridspec")
 
     # file init
-    def _init_file(self):
+    def from_file(self):
         # find the file type
         try:
             # extract the file name and extension
@@ -187,5 +192,7 @@ class Grid:
     def write(self, outfile, format=""):
         if format == "ugrid":
             self.write_ugrid(outfile)
+        elif format == "g" or format == "exo":
+            self.write_exodus(self.grid_ds, outfile)
         else:
             print("format not supported for writing")

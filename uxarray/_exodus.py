@@ -40,6 +40,8 @@ def read_exodus(self, ds):
                     # nothing specified set to m
                     "units": "deg",
                 })
+            # TODO: remove all exodus DVs
+            # ds = ds.drop("coord")
         elif key == "coordx":
             ds["Mesh2_node_x"] = xr.DataArray(
                 data=ds.coordx,
@@ -89,4 +91,26 @@ def read_exodus(self, ds):
 
 
 def write_exodus(self, ds, filename):
+    # Note this is 1-based unlike native Mesh2 construct
     print("writing exodus file: ", filename)
+    # check if data variable has Mesh2 construct
+    # if not, throw a message that mesh isn't in native uxarray format before write called
+    # if Mesh2 construct
+
+    # write header
+
+    # from mesh2
+    # dimen = ds["Mesh2"].topology_dimension
+    # ds = ds.expand_dims({"num_dim":dimen})
+    # print(ds)
+
+    # # ds.dims["num_dim"].assign()
+
+    # # ds.dims["num_dim"] = ds["Mesh2"].topology_dimension
+    # self.grid_ds.dims["num_nodes"] = ds.dims["nMesh2_node"]
+    # self.grid_ds.dims["num_elem"] = ds.dims["nMesh2_face"]
+    # self.grid_ds.dims["num_el_blk"] = 1 # set to one now #ds.dims["nMesh2_nodes"]
+    # write qa header/string
+    # write nodes
+    # write element blocks
+    #
