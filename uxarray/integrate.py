@@ -20,7 +20,7 @@ class IntegrateAccessor:
 
         # area of a face call needs the units for coordinate conversion if spherical grid is used
         units = "spherical"
-        if not "degree" in self.dataarray.Mesh2_node_x.units:
+        if "degree" not in self.dataarray.Mesh2_node_x.units:
             units = "cartesian"
 
         num_faces = self.dataarray.get(var_key).data.size
