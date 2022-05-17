@@ -8,7 +8,7 @@ def get_tri_quadratureDG(nOrder):
         dG, dW: points and weights, with dimension order x 3
     """
     # 12th order quadrature rule (33 points)
-    if (nOrder == 12):
+    if nOrder == 12:
         dG = [[0.023565220452390, 0.488217389773805, 0.488217389773805],
               [0.488217389773805, 0.023565220452390, 0.488217389773805],
               [0.488217389773805, 0.488217389773805, 0.023565220452390],
@@ -58,7 +58,7 @@ def get_tri_quadratureDG(nOrder):
         ]
 
     # 10th order quadrature rule (25 points)
-    elif (nOrder == 10):
+    elif nOrder == 10:
         dG = [[0.333333333333333, 0.333333333333333, 0.333333333333333],
               [0.028844733232685, 0.485577633383657, 0.485577633383657],
               [0.485577633383657, 0.028844733232685, 0.485577633383657],
@@ -98,7 +98,7 @@ def get_tri_quadratureDG(nOrder):
         ]
 
     # 8th order quadrature rule (16 points)
-    elif (nOrder == 8):
+    elif nOrder == 8:
         dG = [[0.333333333333333, 0.333333333333333, 0.333333333333333],
               [0.081414823414554, 0.459292588292723, 0.459292588292723],
               [0.459292588292723, 0.081414823414554, 0.459292588292723],
@@ -126,7 +126,7 @@ def get_tri_quadratureDG(nOrder):
         ]
 
     # 4th order quadrature rule (6 points)
-    elif (nOrder == 4):
+    elif nOrder == 4:
 
         dG = [[0.108103018168070, 0.445948490915965, 0.445948490915965],
               [0.445948490915965, 0.108103018168070, 0.445948490915965],
@@ -140,41 +140,44 @@ def get_tri_quadratureDG(nOrder):
             0.109951743655322, 0.109951743655322, 0.109951743655322
         ]
     # 1st order quadrature rule (1 point)
-    elif (nOrder == 1):
+    elif nOrder == 1:
         dG = [[0.333333333333333, 0.333333333333333, 0.333333333333333]]
         dW = [[1.000000000000000]]
+
+    else:
+        raise ValueError('nOrder must be 1, 4, 8 or 16')
 
     return dG, dW
 
 
-def get_gauss_quadratureDG(nCount):
+def get_gauss_quadratureDG(degree):
     """Gauss Quadrature Points for integration.
 
     Args:
-        Degree (integer): Degree, supports: 1 to 10
+        degree (integer): Degree, supports: 1 to 10
 
     Returns:
         dG, dW: points and weights, with dimension degree x 3
         Note: dG and dW are scaled before returning
     """
-    #Degree 1
-    if (nCount == 1):
+    # degree 1
+    if degree == 1:
         dG = [0.0]
         dW = [+2.0]
 
-    #Degree 2
-    elif (nCount == 2):
+    # degree 2
+    elif degree == 2:
         dG = [-0.5773502691896257, +0.5773502691896257]
         dW = [+1.0, +1.0]
 
-    #Degree 3
-    elif (nCount == 3):
+    # degree 3
+    elif degree == 3:
         dG = [-0.7745966692414834, 0.0, +0.7745966692414834]
 
         dW = [+0.5555555555555556, +0.8888888888888888, +0.5555555555555556]
 
-    #Degree 4
-    elif (nCount == 4):
+    # degree 4
+    elif degree == 4:
         dG = [
             -0.8611363115940526, -0.3399810435848563, +0.3399810435848563,
             +0.8611363115940526
@@ -185,8 +188,8 @@ def get_gauss_quadratureDG(nCount):
             0.3478548451374538
         ]
 
-    #Degree 5
-    elif (nCount == 5):
+    # degree 5
+    elif degree == 5:
         dG = [
             -0.9061798459386640, -0.5384693101056831, 0.0, +0.5384693101056831,
             +0.9061798459386640
@@ -197,8 +200,8 @@ def get_gauss_quadratureDG(nCount):
             0.4786286704993665, 0.2369268850561891
         ]
 
-    #Degree 6
-    elif (nCount == 6):
+    # degree 6
+    elif degree == 6:
         dG = [
             -0.9324695142031521, -0.6612093864662645, -0.2386191860831969,
             +0.2386191860831969, +0.6612093864662645, +0.9324695142031521
@@ -209,8 +212,8 @@ def get_gauss_quadratureDG(nCount):
             0.4679139345726910, 0.3607615730481386, 0.1713244923791704
         ]
 
-    #Degree 7
-    elif (nCount == 7):
+    # degree 7
+    elif degree == 7:
         dG = [
             -0.9491079123427585, -0.7415311855993945, -0.4058451513773972, 0.0,
             +0.4058451513773972, +0.7415311855993945, +0.9491079123427585
@@ -222,8 +225,8 @@ def get_gauss_quadratureDG(nCount):
             0.1294849661688697
         ]
 
-    #Degree 8
-    elif (nCount == 8):
+    # degree 8
+    elif degree == 8:
         dG = [
             -0.9602898564975363, -0.7966664774136267, -0.5255324099163290,
             -0.1834346424956498, +0.1834346424956498, +0.5255324099163290,
@@ -236,8 +239,8 @@ def get_gauss_quadratureDG(nCount):
             0.2223810344533745, 0.1012285362903763
         ]
 
-    #Degree 9
-    elif (nCount == 9):
+    # degree 9
+    elif degree == 9:
         dG = [
             -1.0, -0.899757995411460, -0.677186279510738, -0.363117463826178,
             0.0, +0.363117463826178, +0.677186279510738, +0.899757995411460,
@@ -250,8 +253,8 @@ def get_gauss_quadratureDG(nCount):
             0.2606106964029354, 0.1806481606948574, 0.0812743883615744
         ]
 
-    #Degree 10
-    elif (nCount == 10):
+    # degree 10
+    elif degree == 10:
         dG = [
             -0.9739065285171717, -0.8650633666889845, -0.6794095682990244,
             -0.4333953941292472, -0.1488743389816312, +0.1488743389816312,
@@ -266,11 +269,15 @@ def get_gauss_quadratureDG(nCount):
             0.0666713443086881
         ]
 
+    else:
+        raise ValueError('unsupported degree')
+
 
 # Scale quadrature points
     dXi0 = 0.0
     dXi1 = 1.0
-    for i in range(nCount):
+    # TODO: vectorize
+    for i in range(degree):
         dG[i] = dXi0 + 0.5 * (dXi1 - dXi0) * (dG[i] + 1.0)
         dW[i] = 0.5 * (dXi1 - dXi0) * dW[i]
 
