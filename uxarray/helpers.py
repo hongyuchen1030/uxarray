@@ -1,4 +1,3 @@
-import math
 import numpy as np
 import xarray as xr
 from pathlib import PurePath
@@ -49,29 +48,23 @@ def determine_file_type(filepath):
                     standard_name = lambda v: v is not None
                     # getkeys_filter_by_attribute(filepath, attr_name, attr_val)
                     # return type KeysView
-                    base_dv_nc = list(
-                        xr.open_dataset(
-                            filepath, mask_and_scale=False).filter_by_attrs(
-                                node_coordinates=standard_name).keys())[0]
-                    base_dv_fc = list(
-                        xr.open_dataset(
-                            filepath, mask_and_scale=False).filter_by_attrs(
-                                face_node_connectivity=standard_name).keys())[0]
-                    base_dv_td = list(
-                        xr.open_dataset(
-                            filepath, mask_and_scale=False).filter_by_attrs(
-                                topology_dimension=standard_name).keys())[0]
-                    base_dv_mt = list(
-                        xr.open_dataset(filepath,
-                                        mask_and_scale=False).filter_by_attrs(
-                                            cf_role="mesh_topology").keys())[0]
-                    if base_dv_mt != "" and base_dv_td != "" and base_dv_fc != "" and base_dv_nc != "":
+                    ext_ds = xr.open_dataset(filepath, mask_and_scale=False)
+                    node_coords_dv = ext_ds.filter_by_attrs(
+                        node_coordinates=standard_name).keys()
+                    face_conn_dv = ext_ds.filter_by_attrs(
+                        face_node_connectivity=standard_name).keys()
+                    topo_dim_dv = ext_ds.filter_by_attrs(
+                        topology_dimension=standard_name).keys()
+                    mesh_topo_dv = ext_ds.filter_by_attrs(
+                        cf_role="mesh_topology").keys()
+                    if list(mesh_topo_dv)[0] != "" and list(topo_dim_dv)[
+                            0] != "" and list(face_conn_dv)[0] != "" and list(
+                                node_coords_dv)[0] != "":
                         mesh_filetype = "ugrid"
                     else:
-                        print(
+                        raise ValueError(
                             "cf_role is other than mesh_topology, the input NetCDF file is not UGRID format"
                         )
-                        exit()
                 except KeyError as e:
                     msg = str(e) + ': {}'.format(filepath)
     except (TypeError, AttributeError) as e:
@@ -101,9 +94,9 @@ def determine_file_type(filepath):
 
 def spherical_to_cartesian_unit(lat, lon, r=6371):
     lat, lon = np.deg2rad(lat), np.deg2rad(lon)
-    x = r * math.cos(lat) * math.cos(lon)  # x coordinate
-    y = r * math.cos(lat) * math.sin(lon)  # y coordinate
-    z = r * math.sin(lat)  # z coordinate
+    x = r * np.cos(lat) * np.cos(lon)  # x coordinate
+    y = r * np.cos(lat) * np.sin(lon)  # y coordinate
+    z = r * np.sin(lat)  # z coordinate
 
     coord = np.array([x, y, z])
     # make it coord on a sphere with unit radius
@@ -128,9 +121,9 @@ def spherical_to_cartesian_unit(node, r=6371):
     lat = node[0]
     lon = node[1]
     lat, lon = np.deg2rad(lat), np.deg2rad(lon)
-    x = r * math.cos(lat) * math.cos(lon)  # x coordinate
-    y = r * math.cos(lat) * math.sin(lon)  # y coordinate
-    z = r * math.sin(lat)  # z coordinate
+    x = r * np.cos(lat) * np.cos(lon)  # x coordinate
+    y = r * np.cos(lat) * np.sin(lon)  # y coordinate
+    z = r * np.sin(lat)  # z coordinate
 
     coord = np.array([x, y, z])
     # make it coord on a sphere with unit radius
@@ -188,70 +181,52 @@ def calculate_face_area(x, y, z, type="spherical"):
 
 def calculate_spherical_triangle_jacobian(node1, node2, node3, dA, dB):
     """Helper function for calculating face area."""
-    dF = [(1.0 - dB) * ((1.0 - dA) * node1[0] + dA * node2[0]) + dB * node3[0],
-          (1.0 - dB) * ((1.0 - dA) * node1[1] + dA * node2[1]) + dB * node3[1],
-          (1.0 - dB) * ((1.0 - dA) * node1[2] + dA * node2[2]) + dB * node3[2]]
+    dF = np.array([
+        (1.0 - dB) * ((1.0 - dA) * node1[0] + dA * node2[0]) + dB * node3[0],
+        (1.0 - dB) * ((1.0 - dA) * node1[1] + dA * node2[1]) + dB * node3[1],
+        (1.0 - dB) * ((1.0 - dA) * node1[2] + dA * node2[2]) + dB * node3[2]
+    ])
 
-    dDaF = [(1.0 - dB) * (node2[0] - node1[0]),
-            (1.0 - dB) * (node2[1] - node1[1]),
-            (1.0 - dB) * (node2[2] - node1[2])]
+    dDaF = np.array([(1.0 - dB) * (node2[0] - node1[0]),
+                     (1.0 - dB) * (node2[1] - node1[1]),
+                     (1.0 - dB) * (node2[2] - node1[2])])
 
-    dDbF = [
+    dDbF = np.array([
         -(1.0 - dA) * node1[0] - dA * node2[0] + node3[0],
         -(1.0 - dA) * node1[1] - dA * node2[1] + node3[1],
         -(1.0 - dA) * node1[2] - dA * node2[2] + node3[2]
-    ]
+    ])
 
-    dInvR = 1.0 / math.sqrt(dF[0] * dF[0] + dF[1] * dF[1] + dF[2] * dF[2])
+    dInvR = 1.0 / np.sqrt(dF[0] * dF[0] + dF[1] * dF[1] + dF[2] * dF[2])
 
-    dDaG = [
+    dDaG = np.array([
         dDaF[0] * (dF[1] * dF[1] + dF[2] * dF[2]) - dF[0] *
         (dDaF[1] * dF[1] + dDaF[2] * dF[2]),
         dDaF[1] * (dF[0] * dF[0] + dF[2] * dF[2]) - dF[1] *
         (dDaF[0] * dF[0] + dDaF[2] * dF[2]),
         dDaF[2] * (dF[0] * dF[0] + dF[1] * dF[1]) - dF[2] *
         (dDaF[0] * dF[0] + dDaF[1] * dF[1])
-    ]
+    ])
 
-    dDbG = [
+    dDbG = np.array([
         dDbF[0] * (dF[1] * dF[1] + dF[2] * dF[2]) - dF[0] *
         (dDbF[1] * dF[1] + dDbF[2] * dF[2]),
         dDbF[1] * (dF[0] * dF[0] + dF[2] * dF[2]) - dF[1] *
         (dDbF[0] * dF[0] + dDbF[2] * dF[2]),
         dDbF[2] * (dF[0] * dF[0] + dF[1] * dF[1]) - dF[2] *
         (dDbF[0] * dF[0] + dDbF[1] * dF[1])
-    ]
+    ])
 
     dDenomTerm = dInvR * dInvR * dInvR
 
-    dDaG[0] *= dDenomTerm
-    dDaG[1] *= dDenomTerm
-    dDaG[2] *= dDenomTerm
-
-    dDbG[0] *= dDenomTerm
-    dDbG[1] *= dDenomTerm
-    dDbG[2] *= dDenomTerm
+    dDaG *= dDenomTerm
+    dDbG *= dDenomTerm
 
     #  Cross product gives local Jacobian
-    nodeCross = cross(dDaG, dDbG)
+    nodeCross = np.cross(dDaG, dDbG)
     # print("nc", nodeCross)
-    dJacobian = math.sqrt(nodeCross[0] * nodeCross[0] +
-                          nodeCross[1] * nodeCross[1] +
-                          nodeCross[2] * nodeCross[2])
+    dJacobian = np.sqrt(nodeCross[0] * nodeCross[0] +
+                        nodeCross[1] * nodeCross[1] +
+                        nodeCross[2] * nodeCross[2])
 
     return dJacobian
-
-
-def cross(a, b):
-    """Cross product of 3D vector a and b."""
-    c = [0] * 3
-    c[0] = a[1] * b[2] - a[2] * b[1]
-    c[1] = a[2] * b[0] - a[0] * b[2]
-    c[2] = a[0] * b[1] - a[1] * b[0]
-    return c
-
-
-def dot(a, b):
-    """Dot product of 3D vector a and b."""
-    c = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-    return c
