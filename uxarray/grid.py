@@ -206,13 +206,14 @@ class Grid:
             print("Format not supported for writing: ", extension)
 
     def calculate_total_face_area(self):
+        # TODO: add more detail about how surface area is calculated to docstring
         """Function to calculate the total surface area of all the faces in a
         mesh."""
         total_face_area = 0
 
         # get the coordinate units
         units = "spherical"
-        if not "degree" in self.ds.Mesh2_node_x.units:
+        if "degree" not in self.ds.Mesh2_node_x.units:
             units = "cartesian"
 
         for i in range(self.ds.nMesh2_face.size):
