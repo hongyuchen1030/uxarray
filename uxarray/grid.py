@@ -2,16 +2,17 @@
 import os
 import xarray as xr
 import numpy as np
-
+import copy
+from intervaltree import Interval, IntervalTree
 # reader and writer imports
 from ._exodus import _read_exodus, _encode_exodus
 from ._ugrid import _read_ugrid, _encode_ugrid
 from ._shapefile import _read_shpfile
 from ._scrip import _read_scrip, _encode_scrip
 from ._mpas import _read_mpas
-from .helpers import get_all_face_area_from_coords, parse_grid_type, _convert_node_xyz_to_lonlat_rad, _convert_node_lonlat_rad_to_xyz
+from .helpers import get_all_face_area_from_coords, parse_grid_type, _convert_node_xyz_to_lonlat_rad, _convert_node_lonlat_rad_to_xyz, _normalize_in_place, _within, _get_radius_of_latitude_rad, get_intersection_pt, _close_face_nodes
 from .constants import INT_DTYPE, INT_FILL_VALUE
-
+from ._latlonbound_utilities import insert_pt_in_latlonbox, get_intersection_point_gcr_gcr
 
 class Grid:
     """
@@ -554,3 +555,625 @@ class Grid:
                 "long_name": "latitude of mesh nodes",
                 "units": "degrees_north",
             })
+
+
+    def _build_edge_node_connectivity(self):
+        """Constructs the UGRID connectivity variable (``Mesh2_edge_nodes``)
+        and stores it within the internal (``Grid.ds``) and through the
+        attribute (``Grid.Mesh2_edge_nodes``).
+        Additionally, the attributes (``inverse_indices``) and
+        (``fill_value_mask``) are stored for constructing other
+        connectivity variables.
+        """
+
+        # padded face nodes: [nMesh2_face x nMaxMesh2_face_nodes + 1]
+        padded_face_nodes = _close_face_nodes(self.Mesh2_face_nodes.values,
+                                              self.nMesh2_face,
+                                              self.nMaxMesh2_face_nodes)
+
+        # construct an array of empty edge nodes where each entry is a pair of indices
+        edge_nodes = np.empty((self.nMesh2_face * self.nMaxMesh2_face_nodes, 2),
+                              dtype=INT_DTYPE)
+
+        # first index includes starting node up to non-padded value
+        edge_nodes[:, 0] = padded_face_nodes[:, :-1].ravel()
+
+        # second index includes second node up to padded value
+        edge_nodes[:, 1] = padded_face_nodes[:, 1:].ravel()
+
+        # all edge nodes that contain a fill value
+        fill_value_mask = np.logical_or(edge_nodes[:, 0] == INT_FILL_VALUE,
+                                        edge_nodes[:, 1] == INT_FILL_VALUE)
+
+        # all edge nodes that do not contain a fill value
+        non_fill_value_mask = np.logical_not(fill_value_mask)
+
+        # filter out all invalid edges
+        edge_nodes = edge_nodes[non_fill_value_mask]
+
+        # sorted edge nodes
+        edge_nodes.sort(axis=1)
+
+        # unique edge nodes
+        edge_nodes_unique, inverse_indices = np.unique(edge_nodes,
+                                                       return_inverse=True,
+                                                       axis=0)
+        # add mesh2_edge_nodes to internal dataset
+        self.ds['Mesh2_edge_nodes'] = xr.DataArray(
+            edge_nodes_unique,
+            dims=["nMesh2_edge", "Two"],
+            attrs={
+                "cf_role":
+                    "edge_node_connectivity",
+                "long_name":
+                    "Maps every edge to the two nodes that it connects",
+                "start_index":
+                    INT_DTYPE(0),
+                "inverse_indices":
+                    inverse_indices,
+                "fill_value_mask":
+                    fill_value_mask
+            })
+
+        setattr(self, "Mesh2_edge_nodes", self.ds['Mesh2_edge_nodes'])
+        setattr(self, "nMesh2_edge", edge_nodes_unique.shape[0])
+
+    def build_face_edges_connectivity(self):
+        """A DataArray of indices indicating edges that are neighboring each
+        face.
+        Notes
+        -----
+        This function will add `Grid.ds.Mesh2_face_edges` to the `Grid` class, which is an integer
+        DataArray of size (nMesh2_face, MaxNumNodesPerFace)
+        """
+        mesh2_face_nodes = self.Mesh2_face_nodes.values
+        n = self.nMesh2_face
+        m = self.nMaxMesh2_face_nodes
+
+        # Then do the padding for each face to close the polygon
+        closed = np.full((n, m + 1), INT_FILL_VALUE)
+        closed[:, :-1] = np.array(mesh2_face_nodes, dtype=INT_DTYPE)
+        # We only want the index of first occurrence of INT_FILL_VALUE
+        first_fill_value_index = np.argmax(closed == INT_FILL_VALUE, axis=1)
+        first_node = mesh2_face_nodes[:, 0]
+        # Create 1D index into a 2D array
+        first_fill_idx = (m + 1) * np.arange(0, n) + first_fill_value_index
+        # replace all values at 1D index with the first_node
+        np.put(closed.ravel(), first_fill_idx, first_node)
+        pad_results = closed
+        # Now create the edge_node_connectivity
+        mesh2_edge_nodes = np.empty((n * m, 2), dtype=np.intp)
+        mesh2_edge_nodes[:, 0] = pad_results[:, :-1].ravel()
+        mesh2_edge_nodes[:, 1] = pad_results[:, 1:].ravel()
+        # Clean up the invalid edge (same node to same node except the [-1, -1] edge)
+        valid_mask = np.array(
+            list(
+                map(
+                    lambda edge: not (edge[0] == edge[1] and not np.array_equal(
+                        edge, np.array([INT_FILL_VALUE, INT_FILL_VALUE]))), mesh2_edge_nodes)))
+        mesh2_edge_nodes = mesh2_edge_nodes[valid_mask]
+        # Find the unique edge
+        mesh2_edge_nodes.sort(axis=1)
+        mesh2_edge_node_copy, inverse_indices = np.unique(ar=mesh2_edge_nodes,
+                                                          return_inverse=True,
+                                                          axis=0)
+        # TODO: Make the dummy edge index in the mesh2_face_edges as INT_FILL_VALUE
+
+        # In mesh2_edge_nodes, we want to remove all dummy edges (edge that has "INT_FILL_VALUE" node index)
+        # But we want to preserve that in our mesh2_face_edges so make the datarray has the same dimensions
+        has_fill_value = np.logical_or(mesh2_edge_node_copy[:, 0] == INT_FILL_VALUE,
+              mesh2_edge_node_copy[:, 1] == INT_FILL_VALUE)
+        mesh2_edge_nodes = mesh2_edge_node_copy[~has_fill_value]
+        inverse_indices = inverse_indices.reshape(n, m)
+        mesh2_face_edges = inverse_indices # We only need to store the edge index
+
+        self.ds["Mesh2_face_edges"] = xr.DataArray(
+            data=mesh2_face_edges,
+            dims=["nMesh2_face", "nMaxMesh2_face_edges"],
+            attrs={
+                "cf_role": "face_edges_connectivity",
+                "start_index": 0
+            })
+        self.ds["Mesh2_edge_nodes"] = xr.DataArray(data=mesh2_edge_nodes,
+                                                   dims=["nMesh2_edge", "Two"])
+
+    def buildlatlon_bounds(self):
+
+        # First make sure the Grid object has the Mesh2_face_edges
+
+        if "Mesh2_face_edges" not in self.ds.keys():
+            self.build_face_edges_connectivity()
+
+        if "Mesh2_node_cart_x" not in self.ds.keys():
+            self._populate_cartesian_xyz_coord()
+
+        # All value are inialized as 404.0 to indicate that they're null
+        temp_latlon_array = [[[404.0, 404.0], [404.0, 404.0]]
+                             ] * self.ds["Mesh2_face_edges"].sizes["nMesh2_face"]
+
+        reference_tolerance = 1.0e-12
+
+        # Build an Interval tree based on the Latitude interval to store latitude-longitude boundaries
+        self._latlonbound_tree = IntervalTree()
+
+        for i in range(0, len(self.ds["Mesh2_face_nodes"])):
+            face_edges = [[0, 0]] * len(self.ds["Mesh2_face_nodes"][i])
+            for j in range(1, len(self.ds["Mesh2_face_nodes"][i])):
+                face_edges[j - 1] = [self.ds["Mesh2_face_nodes"].values[i][j - 1],
+                                     self.ds["Mesh2_face_nodes"].values[i][j]]
+            face_edges[len(self.ds["Mesh2_face_nodes"][i]) - 1] = [
+                self.ds["Mesh2_face_nodes"].values[i][len(self.ds["Mesh2_face_nodes"][i]) - 1],
+                self.ds["Mesh2_face_nodes"].values[i][0]]
+            # Check if face_edges contains pole points
+            _lambda = 0
+            v1 = [0, 0, 1]
+            v2 = _normalize_in_place([np.cos(_lambda), np.sin(_lambda), -1.0])
+
+            num_intersects = self.__count_face_edge_intersection(face_edges, [v1, v2], i)
+            if num_intersects == -1:
+                # if one edge of the grid cell is parallel to the arc (v1 , v2 ) then vary the choice of v2 .
+                sorted_edges_avg_lon = self.__avg_edges_longitude(face_edges)
+                # only need to iterate the first two keys to average the longitude:
+                sum_lon = sorted_edges_avg_lon[0] + sorted_edges_avg_lon[1]
+
+                v2 = [np.cos(sum_lon / 2), np.sin(sum_lon / 2), 0]
+                num_intersects = self.__count_face_edge_intersection(
+                    face_edges, [v1, v2])
+
+            if num_intersects % 2 != 0:
+                # if the face_edges contains the pole point
+                for j in range(0, len(face_edges)):
+                    edge = face_edges[j]
+                    # Skip the dummy edges
+                    if edge[0] == -1 or edge[1] == -1:
+                        continue
+                    # All the following calculation is based on the 3D XYZ coord
+                    # And assume the self.ds["Mesh2_node_x"] always store the lon info
+
+                    # Get the edge end points in 3D [x, y, z] coordinates
+                    n1 = [self.ds["Mesh2_node_cart_x"].values[edge[0]],
+                          self.ds["Mesh2_node_cart_y"].values[edge[0]],
+                          self.ds["Mesh2_node_cart_z"].values[edge[0]]]
+                    n2 = [self.ds["Mesh2_node_cart_x"].values[edge[1]],
+                          self.ds["Mesh2_node_cart_y"].values[edge[1]],
+                          self.ds["Mesh2_node_cart_z"].values[edge[1]]]
+
+                    # Set the latitude extent
+                    d_lat_extent_rad = 0.0
+                    if j == 0:
+                        if n1[2] < 0.0:
+                            d_lat_extent_rad = -0.5 * np.pi
+                        else:
+                            d_lat_extent_rad = 0.5 * np.pi
+
+                    # insert edge endpoint into box
+                    if np.absolute(self.ds["Mesh2_node_y"].values[
+                                       edge[0]]) < d_lat_extent_rad:
+                        d_lat_extent_rad = self.ds["Mesh2_node_y"].values[
+                            edge[0]]
+
+                    # Determine if latitude is maximized between endpoints
+                    dot_n1_n2 = np.dot(n1, n2)
+                    d_de_nom = (n1[2] + n2[2]) * (dot_n1_n2 - 1.0)
+                    if np.absolute(d_de_nom) < reference_tolerance:
+                        continue
+
+                    d_a_max = (n1[2] * dot_n1_n2 - n2[2]) / d_de_nom
+                    if (d_a_max > 0.0) and (d_a_max < 1.0):
+                        node3 = [0.0, 0.0, 0.0]
+                        node3[0] = n1[0] * (1 - d_a_max) + n2[0] * d_a_max
+                        node3[1] = n1[1] * (1 - d_a_max) + n2[1] * d_a_max
+                        node3[2] = n1[2] * (1 - d_a_max) + n2[2] * d_a_max
+                        node3 = _normalize_in_place(node3)
+
+                        d_lat_rad = node3[2]
+
+                        if d_lat_rad > 1.0:
+                            d_lat_rad = 0.5 * np.pi
+                        elif d_lat_rad < -1.0:
+                            d_lat_rad = -0.5 * np.pi
+                        else:
+                            d_lat_rad = np.arcsin(d_lat_rad)
+
+                        if np.absolute(d_lat_rad) < np.absolute(
+                                d_lat_extent_rad):
+                            d_lat_extent_rad = d_lat_rad
+
+                    if d_lat_extent_rad < 0.0:
+                        lon_list = [0.0, 2.0 * np.pi]
+                        lat_list = [-0.5 * np.pi, d_lat_extent_rad]
+                    else:
+                        lon_list = [0.0, 2.0 * np.pi]
+                        lat_list = [d_lat_extent_rad, 0.5 * np.pi]
+
+                    temp_latlon_array[i] = [lat_list, lon_list]
+            else:
+                # normal face_edges
+                for j in range(0, len(face_edges)):
+                    edge = face_edges[j]
+                    # Skip the dummy edges
+                    if edge[0] == -1 or edge[1] == -1:
+                        continue
+
+                    # For each edge, we only need to consider the first end point in each loop
+                    # Check if the end point is the pole point
+                    n1 = [self.ds["Mesh2_node_x"].values[edge[0]],
+                          self.ds["Mesh2_node_y"].values[edge[0]]]
+
+                    # North Pole:
+                    if (np.absolute(n1[0] - 0) < reference_tolerance and np.absolute(
+                            n1[1] - 90) < reference_tolerance) or (
+                            np.absolute(n1[0] - 180) < reference_tolerance and np.absolute(
+                        n1[1] - 90) < reference_tolerance):
+                        # insert edge endpoint into box
+                        d_lat_rad = np.deg2rad(
+                            self.ds["Mesh2_node_y"].values[edge[0]])
+                        d_lon_rad = 404.0
+                        temp_latlon_array[i] = insert_pt_in_latlonbox(
+                            copy.deepcopy(temp_latlon_array[i]),
+                            [d_lat_rad, d_lon_rad])
+                        continue
+
+                    # South Pole:
+                    if (np.absolute(n1[0] - 0) < reference_tolerance and np.absolute(
+                            n1[1] - (-90)) < reference_tolerance) or (
+                            np.absolute(n1[0] - 180) < reference_tolerance and np.absolute(
+                        n1[1] - (-90)) < reference_tolerance):
+                        d_lat_rad = np.deg2rad(
+                            self.ds["Mesh2_node_y"].values[edge[0]])
+                        d_lon_rad = 404.0
+                        temp_latlon_array[i] = insert_pt_in_latlonbox(
+                            copy.deepcopy(temp_latlon_array[i]),
+                            [d_lat_rad, d_lon_rad])
+                        continue
+
+                    # Only consider the great circles arcs
+                    # All the following calculation is based on the 3D XYZ coord
+                    # And assume the self.ds["Mesh2_node_x"] always store the lon info
+
+                    # Get the edge end points in 3D [x, y, z] coordinates
+                    n1 = [self.ds["Mesh2_node_cart_x"].values[edge[0]],
+                          self.ds["Mesh2_node_cart_y"].values[edge[0]],
+                          self.ds["Mesh2_node_cart_z"].values[edge[0]]]
+                    n2 = [self.ds["Mesh2_node_cart_x"].values[edge[1]],
+                          self.ds["Mesh2_node_cart_y"].values[edge[1]],
+                          self.ds["Mesh2_node_cart_z"].values[edge[1]]]
+
+                    # Determine if latitude is maximized between endpoints
+                    # TODO: Replace this with the get_gcr_max_lat_rad function
+                    dot_n1_n2 = np.dot(n1, n2)
+                    d_de_nom = (n1[2] + n2[2]) * (dot_n1_n2 - 1.0)
+
+                    # insert edge endpoint into box
+                    d_lat_rad = np.deg2rad(
+                        self.ds["Mesh2_node_y"].values[edge[0]])
+                    d_lon_rad = np.deg2rad(
+                        self.ds["Mesh2_node_x"].values[edge[0]])
+                    temp_latlon_array[i] = insert_pt_in_latlonbox(
+                        copy.deepcopy(temp_latlon_array[i]),
+                        [d_lat_rad, d_lon_rad])
+
+                    if np.absolute(d_de_nom) < reference_tolerance:
+                        continue
+
+                    # Maximum latitude occurs between endpoints of edge
+                    d_a_max = (n1[2] * dot_n1_n2 - n2[2]) / d_de_nom
+                    if 0.0 < d_a_max < 1.0:
+                        node3 = [0.0, 0.0, 0.0]
+                        node3[0] = n1[0] * (1 - d_a_max) + n2[0] * d_a_max
+                        node3[1] = n1[1] * (1 - d_a_max) + n2[1] * d_a_max
+                        node3[2] = n1[2] * (1 - d_a_max) + n2[2] * d_a_max
+                        node3 = _normalize_in_place(node3)
+
+                        d_lat_rad = node3[2]
+
+                        if d_lat_rad > 1.0:
+                            d_lat_rad = 0.5 * np.pi
+                        elif d_lat_rad < -1.0:
+                            d_lat_rad = -0.5 * np.pi
+                        else:
+                            d_lat_rad = np.arcsin(d_lat_rad)
+
+                        temp_latlon_array[i] = insert_pt_in_latlonbox(
+                            copy.deepcopy(temp_latlon_array[i]),
+                            [d_lat_rad, d_lon_rad])
+
+            assert temp_latlon_array[i][0][0] != temp_latlon_array[i][0][1]
+            assert temp_latlon_array[i][1][0] != temp_latlon_array[i][1][1]
+            lat_list = temp_latlon_array[i][0]
+            lon_list = temp_latlon_array[i][1]
+            self._latlonbound_tree[lat_list[0]:lat_list[1]] = i
+
+        self.ds["Mesh2_latlon_bounds"] = xr.DataArray(
+            data=temp_latlon_array, dims=["nMesh2_face", "Latlon", "Two"])
+
+        # Helper function to get the average longitude of each edge in sorted order (ascending0
+
+    def __avg_edges_longitude(self, face):
+        """Helper function to get the average longitude of each edge in sorted order (ascending0
+        Parameters
+        ----------
+        edge_list: 2D float array:
+        [[lon, lat],
+         [lon, lat]
+         ...
+         [lon, lat]
+        ]
+        Returns: 1D float array, record the average longitude of each edge
+        """
+        edge_list = []
+        for edge in face:
+            # Skip the dump edges
+            if edge[0] == -1 or edge[1] == -1:
+                continue
+            n1 = [
+                self.ds["Mesh2_node_x"].values[edge[0]],
+                self.ds["Mesh2_node_y"].values[edge[0]]
+            ]
+            n2 = [
+                self.ds["Mesh2_node_x"].values[edge[1]],
+                self.ds["Mesh2_node_y"].values[edge[1]]
+            ]
+
+            # Since we only want to sort the Edge based on their longitude,
+            # We can utilize the Edge class < operator here by creating the Edge only using the longitude
+            edge_list.append((n1[0] + n2[0]) / 2)
+
+        edge_list.sort()
+
+        return edge_list
+
+        # Count the number of total intersections of an edge and face (Algo. 2.4 Determining if a grid cell contains a
+        # given point)
+
+    def __count_face_edge_intersection(self, face, ref_edge, i=-1):
+        """Helper function to count the total number of intersections points
+        between the reference edge and a face.
+        Parameters
+        ----------
+        face: xarray.DataArray, list, required
+        ref_edge: 2D list, the reference edge that intersect with the face (stored in 3D xyz coordinates) [[x1, y1, z1], [x2, y2, z2]]
+        Returns:
+        num_intersection: number of intersections
+        -1: the ref_edge is parallel to one of the edge of the face and need to vary the ref_edge
+        """
+        v1 = ref_edge[0]
+        v2 = ref_edge[1]
+        intersection_set = set()
+        num_intersection = 0
+        for edge in face:
+            # Skip the dump edges
+            if edge[0] == -1 or edge[1] == -1:
+                continue
+            # All the following calculation is based on the 3D XYZ coord
+
+            # [Test]
+            w1_rad = [
+                self.ds["Mesh2_node_x"].values[edge[0]],
+                self.ds["Mesh2_node_y"].values[edge[0]]
+            ]
+
+            w2_rad = [
+                self.ds["Mesh2_node_x"].values[edge[1]],
+                self.ds["Mesh2_node_y"].values[edge[1]]
+            ]
+            w1 = []
+            w2 = []
+
+            # Convert the 2D [lon, lat] to 3D [x, y, z]
+            w1 = _convert_node_lonlat_rad_to_xyz([
+                np.deg2rad(self.ds["Mesh2_node_x"].values[edge[0]]),
+                np.deg2rad(self.ds["Mesh2_node_y"].values[edge[0]])
+            ])
+            w2 = _convert_node_lonlat_rad_to_xyz([
+                np.deg2rad(self.ds["Mesh2_node_x"].values[edge[1]]),
+                np.deg2rad(self.ds["Mesh2_node_y"].values[edge[1]])
+            ])
+
+            res = get_intersection_point_gcr_gcr(w1, w2, v1, v2, i)
+
+            # two vectors are intersected within range and not parralel
+            if (res != [0, 0, 0]) and (res != [-1, -1, -1]):
+                intersection_set.add(frozenset(np.round(res, decimals=12).tolist()))
+                num_intersection += 1
+            elif res[0] == 0 and res[1] == 0 and res[2] == 0:
+                # if two vectors are parallel
+                return -1
+
+        # If the intersection point number is 1, make sure the gcr is not going through a vertex of the face
+        # In this situation, the intersection number will be 0 because the gcr doesn't go across the face technically
+        if len(intersection_set) == 1:
+            intersection_pt = intersection_set.pop()
+            for edge in face:
+                if edge[0] == -1 or edge[1] == -1:
+                    continue
+                w1 = _convert_node_lonlat_rad_to_xyz([
+                    np.deg2rad(self.ds["Mesh2_node_x"].values[edge[0]]),
+                    np.deg2rad(self.ds["Mesh2_node_y"].values[edge[0]])
+                ])
+                w2 = _convert_node_lonlat_rad_to_xyz([
+                    np.deg2rad(self.ds["Mesh2_node_x"].values[edge[1]]),
+                    np.deg2rad(self.ds["Mesh2_node_y"].values[edge[1]])
+                ])
+
+                if list(intersection_pt) == w1 or list(intersection_pt) == w2:
+                    return 0
+
+        return len(intersection_set)
+
+    # Get the non-conservative zonal average of the input variable
+    def get_nc_zonal_avg(self, var_key, latitude_rad):
+        '''
+         Algorithm:
+            For each face:
+                Find the constantLat Arc intersection points with the face:
+                How to find:
+                    Use the root calculation to get the approximate point location
+                    Then based on the approximate results, use the newton-raphson method to
+
+        '''
+
+        face_vals = self.ds.get(var_key).to_numpy()
+        if "Mesh2_latlon_bounds" not in self.ds.keys() or "Mesh2_latlon_bounds" is None:
+            self.buildlatlon_bounds()
+
+        #  First Get the list of faces that falls into this latitude range
+        candidate_faces_index_list = []
+
+        # Search through the interval tree for all the candidates face
+        candidate_face_set = self._latlonbound_tree.at(latitude_rad)
+        for interval in candidate_face_set:
+            candidate_faces_index_list.append(interval.data)
+        candidate_faces_weight_list = self._get_zonal_face_weights_at_constlat(candidate_faces_index_list, latitude_rad)
+        # Get the candidate face values:
+        face_vals = self.ds.get(var_key).to_numpy()
+        candidate_faces_vals_list = [0.0] * len(candidate_faces_index_list)
+        for i in range(0, len(candidate_faces_index_list)):
+            face_index = candidate_faces_index_list[i]
+            candidate_faces_vals_list[i] = face_vals[face_index]
+        zonal_average = np.dot(candidate_faces_weight_list, candidate_faces_vals_list)
+        return zonal_average
+
+    def _get_zonal_face_weights_at_constlat(self, candidate_faces_index_list, latitude_rad):
+        # Then calculate the weight of each face
+        # First calculate the perimeter this constant latitude circle
+        candidate_faces_weight_list = [0.0] * len(candidate_faces_index_list)
+
+        for i in range(0, len(candidate_faces_index_list)):
+            face_index = candidate_faces_index_list[i]
+            [face_lon_bound_min, face_lon_bound_max] = self.ds["Mesh2_latlon_bounds"].values[face_index][1]
+            face = self.ds["Mesh2_face_edges"].values[face_index]
+            x = self.ds["Mesh2_node_cart_x"].values[face[:, 0]]
+            y = self.ds["Mesh2_node_cart_y"].values[face[:, 0]]
+            z = self.ds["Mesh2_node_cart_z"].values[face[:, 0]]
+            pt_lon_min = 3 * np.pi
+            pt_lon_max = -3 * np.pi
+            face_cart_temp = list(np.stack((x, y, z), axis=-1))
+            face_latlon = list(map(_convert_node_xyz_to_lonlat_rad, face_cart_temp))
+            intersections_pts_list_lonlat = []
+            for j in range(0, len(face)):
+                edge = face[j]
+                # Get the edge end points in 3D [x, y, z] coordinates
+                n1 = [self.ds["Mesh2_node_cart_x"].values[edge[0]],
+                      self.ds["Mesh2_node_cart_y"].values[edge[0]],
+                      self.ds["Mesh2_node_cart_z"].values[edge[0]]]
+                n2 = [self.ds["Mesh2_node_cart_x"].values[edge[1]],
+                      self.ds["Mesh2_node_cart_y"].values[edge[1]],
+                      self.ds["Mesh2_node_cart_z"].values[edge[1]]]
+                n1_lonlat = _convert_node_xyz_to_lonlat_rad(n1)
+                n2_lonlat = _convert_node_xyz_to_lonlat_rad(n2)
+                intersections = get_intersection_pt([n1, n2], latitude_rad)
+                if intersections[0] == [-1, -1, -1] and intersections[1] == [-1, -1, -1]:
+                    # The constant latitude didn't cross this edge
+                    continue
+                elif intersections[0] != [-1, -1, -1] and intersections[1] != [-1, -1, -1]:
+                    # The constant latitude goes across this edge ( 1 in and 1 out):
+                    pts1_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[0])
+                    pts2_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[1])
+                    intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[0]))
+                    intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
+                else:
+                    if intersections[0] != [-1, -1, -1]:
+                        pts1_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[0])
+                        intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[0]))
+                    else:
+                        pts2_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[1])
+                        intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
+            if len(intersections_pts_list_lonlat) == 2:
+                [pt_lon_min, pt_lon_max] = np.sort(
+                    [intersections_pts_list_lonlat[0][0], intersections_pts_list_lonlat[1][0]])
+            if face_lon_bound_min < face_lon_bound_max:
+                # Normal case
+                cur_face_mag_rad = pt_lon_max - pt_lon_min
+            else:
+                # Longitude wrap-around
+                # TODO: Need to think more marginal cases
+
+                if pt_lon_max >= np.pi and pt_lon_min >= np.pi:
+                    # They're both on the "left side" of the 0-lon
+                    cur_face_mag_rad = pt_lon_max - pt_lon_min
+                if pt_lon_max <= np.pi and pt_lon_min <= np.pi:
+                    # They're both on the "right side" of the 0-lon
+                    cur_face_mag_rad = pt_lon_max - pt_lon_min
+                else:
+                    # They're at the different side of the 0-lon
+                    cur_face_mag_rad = 2 * np.pi - pt_lon_max + pt_lon_min
+            if cur_face_mag_rad > np.pi:
+                print("At face: " + str(face_index) + "Problematic lat is " + str(
+                    latitude_rad) + " And the cur_face_mag_rad is " + str(cur_face_mag_rad))
+            # assert(cur_face_mag_rad <= np.pi)
+
+            # Calculate the weight from each face by |intersection line length| / total perimeter
+            candidate_faces_weight_list[i] = cur_face_mag_rad
+
+        # Sum up all the weights to get the total
+        candidate_faces_weight_list = np.array(candidate_faces_weight_list) / np.sum(candidate_faces_weight_list)
+        return candidate_faces_weight_list
+
+    def get_conservative_zonal_avg(self, var_key, latitude_rad_range):
+        '''
+        var_key: varaible key to be averaged
+        latitude_rad_range: The query latitude_rad_range [lat_min, lat_max]
+                            ranges are inclusive of the lower limit, but non-inclusive of the upper limit
+        '''
+        #  First Get the list of faces that falls into this latitude range
+        candidate_faces_index_list = []
+        min_lat, max_lat = latitude_rad_range
+
+        # Search through the interval tree for all the candidates face
+        regrid_candidate_face_set = self._latlonbound_tree[
+                                    min_lat: max_lat]  # All faces that instersect with this zonal tile
+        enveloped_face = self._latlonbound_tree.envelop(min_lat,
+                                                        max_lat)  # Faces that are fully enveloped by this zonal tile
+        not_enveloped_face = regrid_candidate_face_set - enveloped_face  # Faces that are cut by the zonal tile and need to be regrid.
+        for interval in not_enveloped_face:
+            candidate_faces_index_list.append(interval.data)
+
+        # Calcuate the weight of each face by its weight
+        candidate_faces_weight_list = [0.0] * len(candidate_faces_index_list)
+        for face_idx in regrid_candidate_face_set:
+            # Reconstruct the face if it's not fully envelope by the latitude range
+            face = self.ds["Mesh2_face_edges"].values[face_idx]
+            x = self.ds["Mesh2_node_cart_x"].values[face[:, 0]]
+            y = self.ds["Mesh2_node_cart_y"].values[face[:, 0]]
+            z = self.ds["Mesh2_node_cart_z"].values[face[:, 0]]
+            intersections_pts_list_lonlat = []  # Maximum size:4
+            for j in range(0, len(face)):
+                edge = face[j]
+                # Get the edge end points in 3D [x, y, z] coordinates
+                n1 = [self.ds["Mesh2_node_cart_x"].values[edge[0]],
+                      self.ds["Mesh2_node_cart_y"].values[edge[0]],
+                      self.ds["Mesh2_node_cart_z"].values[edge[0]]]
+                n2 = [self.ds["Mesh2_node_cart_x"].values[edge[1]],
+                      self.ds["Mesh2_node_cart_y"].values[edge[1]],
+                      self.ds["Mesh2_node_cart_z"].values[edge[1]]]
+
+                for lat_bound in latitude_rad_range:
+                    intersections = get_intersection_pt([n1, n2], lat_bound)
+                    if intersections[0] == [-1, -1, -1] and intersections[1] == [-1, -1, -1]:
+                        # The constant latitude didn't cross this edge
+                        continue
+                    elif intersections[0] != [-1, -1, -1] and intersections[1] != [-1, -1, -1]:
+                        # The constant latitude goes across this edge ( 1 in and 1 out):
+                        pts1_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[0])
+                        pts2_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[1])
+                        intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[0]))
+                        intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
+                    else:
+                        if intersections[0] != [-1, -1, -1]:
+                            intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[0]))
+                        else:
+                            intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
+
+            if len(intersections_pts_list_lonlat) == 2:
+                # Only one constant latitude goes through this face
+                pass
+            elif len(intersections_pts_list_lonlat) == 4:
+                # Both constant latitude goes through this face
+                pass
+            else:
+                print("Exception")
+
+
+
+

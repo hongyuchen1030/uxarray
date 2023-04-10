@@ -2,10 +2,11 @@ import numpy as np
 import xarray as xr
 from pathlib import PurePath
 from .get_quadratureDG import get_gauss_quadratureDG, get_tri_quadratureDG
+from uxarray._zonal_avg_utilities import _newton_raphson_solver_for_intersection_pts
 from numba import njit, config
 import math
 
-from .constants import INT_DTYPE
+from .constants import INT_DTYPE, INT_FILL_VALUE
 
 config.DISABLE_JIT = False
 
@@ -557,8 +558,7 @@ def _normalize_in_place(node):
     """
     if len(node) != 3:
         raise RuntimeError("Input array should have a length of 3: [x, y, z]")
-
-    return list(np.array(node) / np.linalg.norm(np.array(node), ord=2))
+    return list(np.array(node, dtype=float) / np.linalg.norm(np.array(node, dtype=float), ord=2))
 
 
 def _replace_fill_values(grid_var, original_fill, new_fill, new_dtype=None):
@@ -618,3 +618,253 @@ def _replace_fill_values(grid_var, original_fill, new_fill, new_dtype=None):
     grid_var[fill_val_idx] = new_fill
 
     return grid_var
+
+# helper function to calculate the angle of 3D vectors u,v in radian
+def _angle_of_2_vectors(u, v):
+    # 𝜃=2 𝑎𝑡𝑎𝑛2(|| ||𝑣||𝑢−||𝑢||𝑣 ||, || ||𝑣||𝑢+||𝑢||𝑣 ||)
+    # this formula comes from W. Kahan's advice in his paper "How Futile are Mindless Assessments of Roundoff in
+    # Floating-Point Computation?" (https://www.cs.berkeley.edu/~wkahan/Mindless.pdf), section 12 "Mangled Angles."
+    v_norm_times_u = [np.linalg.norm(v) * u[i] for i in range(0, len(u))]
+    u_norm_times_v = [np.linalg.norm(u) * v[i] for i in range(0, len(v))]
+    vec_minus = [
+        v_norm_times_u[i] - u_norm_times_v[i]
+        for i in range(0, len(u_norm_times_v))
+    ]
+    vec_sum = [
+        v_norm_times_u[i] + u_norm_times_v[i]
+        for i in range(0, len(u_norm_times_v))
+    ]
+    angle_u_v_rad = 2 * math.atan2(np.linalg.norm(vec_minus),
+                                   np.linalg.norm(vec_sum))
+    return angle_u_v_rad
+
+
+# helper function for get_intersection_point to determine whether one point is between the other two points
+def _within(p, q, r):
+    """Helper function for get_intersection_point to determine whether the
+    number q is between p and r.
+    Parameters
+    ----------
+    p, q, r: float
+    Returns: boolean
+    """
+    return p <= q <= r or r <= q <= p
+
+
+# Helper function to get the radius of a constant latitude arc
+def _get_radius_of_latitude_rad(latitude):
+    longitude = 0.0
+    [x, y, z] = _convert_node_lonlat_rad_to_xyz([longitude, latitude])
+    radius = np.sqrt(x * x + y * y)
+    return radius
+
+def _get_approx_intersection_point_gcr_constlat(gcr_cart, const_lat_rad):
+    """Helper function to get the approximate cartesian coordinates intersections of a great circle arc and line of constant latitude
+    Details explained in the paper chapt.2.2
+    """
+    [n1, n2] = gcr_cart
+    gcr_rad = [_convert_node_xyz_to_lonlat_rad(n1),_convert_node_xyz_to_lonlat_rad(n2)]
+    res = [[-1, -1, -1], [-1, -1, -1]]
+
+    #  Determine if latitude is maximized between endpointscted latitude on the interval a ∈ [0, 1].
+    min_lat = min(gcr_rad[0][1],gcr_rad[1][1])
+    max_lat = get_gcr_max_lat_rad(gcr_cart)
+    if not _within(min_lat, const_lat_rad, max_lat):
+        return res
+    # If z1 = z2 = 0 then the great circle arc corresponds to the equator.
+    if n1[2] == n2[2] == 0 and const_lat_rad != 0:
+        return res
+
+    # To maximize conditioning, one should choose x1 to satisfy |z1| ≥ |z2|. If this inequality does not hold,
+    # x1 and x2 should be swapped first
+    if n1[2] < n2[2]:
+        temp = n1
+        n1 = n2
+        n2 = temp
+
+    z_0 = np.sin(const_lat_rad)
+    n_x = n1[1] * n2[2] - n2[1] * n1[2]
+    n_y = -n1[0] * n2[2] + n2[0] * n1[2]
+    a = n_x * n_x + n_y * n_y
+    if n_x == 0.0 and n_y == 0.0:
+        b = 0.0
+    else:
+        b = 2 * z_0 * np.dot(n1, n2) - 2 * z_0 * n2[2] * (1 / n1[2])
+    c = 0.0 if z_0 == 0.0 else (z_0 ** 2) * (n1[2] ** (-2)) - 1
+    if b * b - 4 * a * c < 0:
+        return res
+
+    # This means the GCR overlaps with the constant latitude, so the intersection point will be the two endpoints of the GCR
+    if a == b == c == 0:
+        return gcr_cart
+    [t1, t2] = np.roots([a, b, c])
+    x1 = [z_0 * n1[0] * (1 / n1[2]) + t1 * n_y, z_0 * n1[1] * (1 / n1[2]) - t1 * n_x, z_0]
+    x2 = [z_0 * n1[0] * (1 / n1[2]) + t2 * n_y, z_0 * n1[1] * (1 / n1[2]) - t2 * n_x, z_0]
+
+    # Once the point of intersection x is found, one should test if either or both of these points lies on the
+    # interval between x1 and x2
+    if _pt_within_gcr(x1, [n1, n2]):
+        res[0] = x1
+    if _pt_within_gcr(x2, [n1, n2]):
+        res[1] = x2
+
+    return res
+
+# Get the intersection point between a GCR and const Lat
+def get_intersection_pt(gcr_cart, const_lat_rad):
+    gcr_lonlat_rad = list(map(_convert_node_xyz_to_lonlat_rad,gcr_cart))
+    const_lat_z = np.sin(const_lat_rad)
+    initial_guess = _get_approx_intersection_point_gcr_constlat(gcr_cart, const_lat_rad)
+    initial_guess_lonlat = _convert_node_xyz_to_lonlat_rad(initial_guess[1])
+    intersection_pt = [[-1, -1, -1], [-1, -1, -1]]
+
+    if initial_guess[0] != [-1, -1, -1]:
+
+        newton_input = [initial_guess[0][0], initial_guess[0][1], const_lat_z]
+        res = _newton_raphson_solver_for_intersection_pts(newton_input, gcr_cart[0], gcr_cart[1])
+        res_lonlat = _convert_node_xyz_to_lonlat_rad([res[0], res[1], const_lat_z])
+        if _pt_within_gcr([res[0], res[1], const_lat_z], gcr_cart):
+            intersection_pt[0] = _normalize_in_place([res[0], res[1], const_lat_z])
+    if initial_guess[1] != [-1, -1, -1]:
+        newton_input = [initial_guess[1][0], initial_guess[1][1], const_lat_z]
+        res = _newton_raphson_solver_for_intersection_pts(newton_input, gcr_cart[0], gcr_cart[1])
+        res_lonlat = _convert_node_xyz_to_lonlat_rad([res[0], res[1], const_lat_z])
+        if _pt_within_gcr([res[0], res[1], const_lat_z], gcr_cart):
+            intersection_pt[1] = _normalize_in_place([res[0], res[1], const_lat_z])
+
+    return intersection_pt
+
+def _pt_within_gcr(pt_cart, gcr_cart):
+    # Helper function to determine if a point lies within the interval of the gcr
+
+    # First determine if the pt lies on the plane defined by the gcr
+    if np.absolute(np.dot(np.cross(gcr_cart[0], gcr_cart[1]), pt_cart) - 0) > 1.0e-12:
+        return False
+
+    # If we have determined the point lies on the gcr plane, we only need to check if the pt's longitude lie within
+    # the gcr
+    pt_lonlat_rad = _convert_node_xyz_to_lonlat_rad(pt_cart)
+    gcr_lonlat_rad = [_convert_node_xyz_to_lonlat_rad(pt) for pt in gcr_cart]
+
+    # Special case: when the gcr and the point are all on the same longitude line:
+    if gcr_lonlat_rad[0][0] == gcr_lonlat_rad[1][0] == pt_lonlat_rad[0]:
+        # Now use the latitude to determine if the pt falls between the interval
+        return _within(gcr_lonlat_rad[0][1], pt_lonlat_rad[1], gcr_lonlat_rad[1][1])
+
+
+    # First we need to deal with the longitude wrap-around case
+    # x0--> 0 lon --> x1
+    if np.absolute(gcr_lonlat_rad[1][0] -  gcr_lonlat_rad[0][0]) >= np.deg2rad(180):
+        if _within(np.deg2rad(180), gcr_lonlat_rad[0][0], np.deg2rad(360)) and _within(0, gcr_lonlat_rad[1][0], np.deg2rad(180)):
+            return _within(gcr_lonlat_rad[0][0], pt_lonlat_rad[0], np.deg2rad(360)) or _within(0, pt_lonlat_rad[0],gcr_lonlat_rad[1][0])
+        elif _within(np.deg2rad(180), gcr_lonlat_rad[1][0], np.deg2rad(360)) and _within(0, gcr_lonlat_rad[0][0], np.deg2rad(180)):
+            # x1 <-- 0 lon <-- x0
+            return _within(gcr_lonlat_rad[1][0], pt_lonlat_rad[0], np.deg2rad(360)) or _within(
+            0, pt_lonlat_rad[0], gcr_lonlat_rad[0][0])
+    else:
+        return _within(gcr_lonlat_rad[0][0], pt_lonlat_rad[0], gcr_lonlat_rad[1][0])
+
+def _sort_intersection_pts_with_lon(pts_lonlat_rad_list, longitude_bound_rad):
+    # This function will sort the intersection points while considering the longitude wrap-around problem.
+    res = []
+    if longitude_bound_rad[0] <= longitude_bound_rad[1]:
+        # Normal case,
+        for pt in pts_lonlat_rad_list:
+            res.append(pt[0] - longitude_bound_rad[0])
+
+    else:
+        # The face that go across the 0 longitude
+        for pt in pts_lonlat_rad_list:
+            if _within(np.pi, pt[0], 2 * np.pi):
+                res.append(pt[0] - longitude_bound_rad[0])
+            else:
+                res.append(pt[0] + (2 * np.pi - longitude_bound_rad[0]))
+
+    res.sort()
+    return res
+
+
+
+def _get_cart_vector_magnitude(start, end):
+    x1 = start
+    x2 = end
+    x1_x2 = [x1[0] - x2[0], x1[1] - x2[1], x1[2] - x2[2]]
+    x1_x2_mag = np.sqrt(x1_x2[0] ** 2 + x1_x2[1] ** 2 + x1_x2[2] ** 2)
+    return x1_x2_mag
+
+def get_gcr_max_lat_rad(gcr_cart):
+    # Helper function in paper 2.1.2 Maximum latitude of a great circle arc
+    n1 = gcr_cart[0]
+    n2 = gcr_cart[1]
+    dot_n1_n2 = np.dot(n1, n2)
+    d_de_nom = (n1[2] + n2[2]) * (dot_n1_n2 - 1.0)
+    d_a_max = (n1[2] * np.dot(n1, n2) - n2[2]) / d_de_nom
+    if np.abs(d_a_max - 0.0) < 1.0e-12:
+        d_a_max = 0.0
+    if np.abs(d_a_max - 1.0) < 1.0e-12:
+        d_a_max = 1.0
+    if (d_a_max > 0.0) and (d_a_max < 1.0):
+        node3 = [0.0, 0.0, 0.0]
+        node3[0] = n1[0] * (1 - d_a_max) + n2[0] * d_a_max
+        node3[1] = n1[1] * (1 - d_a_max) + n2[1] * d_a_max
+        node3[2] = n1[2] * (1 - d_a_max) + n2[2] * d_a_max
+        node3 = _normalize_in_place(node3)
+
+        d_lat_rad = node3[2]
+
+        if d_lat_rad > 1.0:
+            d_lat_rad = 0.5 * np.pi
+        elif d_lat_rad < -1.0:
+            d_lat_rad = -0.5 * np.pi
+        else:
+            d_lat_rad = np.arcsin(d_lat_rad)
+        return d_lat_rad
+    else:
+        return max(_convert_node_xyz_to_lonlat_rad(n1)[1], _convert_node_xyz_to_lonlat_rad(n2)[1])
+
+def _close_face_nodes(Mesh2_face_nodes, nMesh2_face, nMaxMesh2_face_nodes):
+    """Closes (``Mesh2_face_nodes``) by inserting the first node index after
+    the last non-fill-value node.
+    Parameters
+    ----------
+    Mesh2_face_nodes : np.ndarray
+        Connectivity array for constructing a face from its nodes
+    nMesh2_face : constant
+        Number of faces
+    nMaxMesh2_face_nodes : constant
+        Max number of nodes that compose a face
+    Returns
+    ----------
+    closed : ndarray
+        Closed (padded) Mesh2_face_nodes
+    Example
+    ----------
+    Given face nodes with shape [2 x 5]
+        [0, 1, 2, 3, FILL_VALUE]
+        [4, 5, 6, 7, 8]
+    Pads them to the following with shape [2 x 6]
+        [0, 1, 2, 3, 0, FILL_VALUE]
+        [4, 5, 6, 7, 8, 4]
+    """
+
+    # padding to shape [nMesh2_face, nMaxMesh2_face_nodes + 1]
+    closed = np.ones((nMesh2_face, nMaxMesh2_face_nodes + 1),
+                     dtype=INT_DTYPE) * INT_FILL_VALUE
+
+    # set all non-paded values to original face nodee values
+    closed[:, :-1] = Mesh2_face_nodes.copy()
+
+    # instance of first fill value
+    first_fv_idx_2d = np.argmax(closed == INT_FILL_VALUE, axis=1)
+
+    # 2d to 1d index for np.put()
+    first_fv_idx_1d = first_fv_idx_2d + (
+        (nMaxMesh2_face_nodes + 1) * np.arange(0, nMesh2_face))
+
+    # column of first node values
+    first_node_value = Mesh2_face_nodes[:, 0].copy()
+
+    # insert first node column at occurrence of first fill value
+    np.put(closed.ravel(), first_fv_idx_1d, first_node_value)
+
+    return closed
