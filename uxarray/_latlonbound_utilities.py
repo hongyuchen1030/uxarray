@@ -333,7 +333,7 @@ def minmax_Longitude_rad(v1, v2):
 
 
 # helper function to calculate the point position of the intersection of two great circle arcs
-def get_intersection_point_gcr_gcr(w0, w1, v0, v1, i=-1):
+def get_intersection_point_gcr_gcr(w0, w1, v0, v1):
     """Helper function to calculate the intersection point of two great circle
     arcs in 3D coordinates.
     Parameters

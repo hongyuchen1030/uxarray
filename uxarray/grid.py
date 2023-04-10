@@ -970,7 +970,7 @@ class Grid:
                 np.deg2rad(self.ds["Mesh2_node_y"].values[edge[1]])
             ])
 
-            res = get_intersection_point_gcr_gcr(w1, w2, v1, v2, i)
+            res = get_intersection_point_gcr_gcr(w1, w2, v1, v2)
 
             # two vectors are intersected within range and not parralel
             if (res != [0, 0, 0]) and (res != [-1, -1, -1]):
@@ -1002,7 +1002,7 @@ class Grid:
         return len(intersection_set)
 
     # Get the non-conservative zonal average of the input variable
-    def get_nc_zonal_avg(self, var_key, latitude_rad):
+    def get_nc_zonal_avg(self, var_ds, latitude_rad):
         '''
          Algorithm:
             For each face:
@@ -1013,7 +1013,6 @@ class Grid:
 
         '''
 
-        face_vals = self.ds.get(var_key).to_numpy()
         if "Mesh2_latlon_bounds" not in self.ds.keys() or "Mesh2_latlon_bounds" is None:
             self.buildlatlon_bounds()
 
@@ -1026,7 +1025,14 @@ class Grid:
             candidate_faces_index_list.append(interval.data)
         candidate_faces_weight_list = self._get_zonal_face_weights_at_constlat(candidate_faces_index_list, latitude_rad)
         # Get the candidate face values:
-        face_vals = self.ds.get(var_key).to_numpy()
+        var_key = list(var_ds.keys())
+        if len(var_key) > 1:
+            # warning: print message
+            print(
+                "WARNING: The xarray dataset file has more than one variable, using the first variable for integration"
+            )
+        var_key = var_key[0]
+        face_vals = var_ds[var_key].to_numpy()
         candidate_faces_vals_list = [0.0] * len(candidate_faces_index_list)
         for i in range(0, len(candidate_faces_index_list)):
             face_index = candidate_faces_index_list[i]
@@ -1042,17 +1048,20 @@ class Grid:
         for i in range(0, len(candidate_faces_index_list)):
             face_index = candidate_faces_index_list[i]
             [face_lon_bound_min, face_lon_bound_max] = self.ds["Mesh2_latlon_bounds"].values[face_index][1]
-            face = self.ds["Mesh2_face_edges"].values[face_index]
-            x = self.ds["Mesh2_node_cart_x"].values[face[:, 0]]
-            y = self.ds["Mesh2_node_cart_y"].values[face[:, 0]]
-            z = self.ds["Mesh2_node_cart_z"].values[face[:, 0]]
+            face_edges = [[0, 0]] * len(self.ds["Mesh2_face_nodes"][i])
+            for j in range(1, len(self.ds["Mesh2_face_nodes"][i])):
+                face_edges[j - 1] = [self.ds["Mesh2_face_nodes"].values[i][j - 1],
+                                     self.ds["Mesh2_face_nodes"].values[i][j]]
+            face_edges[len(self.ds["Mesh2_face_nodes"][i]) - 1] = [
+                self.ds["Mesh2_face_nodes"].values[i][len(self.ds["Mesh2_face_nodes"][i]) - 1],
+                self.ds["Mesh2_face_nodes"].values[i][0]]
+
             pt_lon_min = 3 * np.pi
             pt_lon_max = -3 * np.pi
-            face_cart_temp = list(np.stack((x, y, z), axis=-1))
-            face_latlon = list(map(_convert_node_xyz_to_lonlat_rad, face_cart_temp))
+
             intersections_pts_list_lonlat = []
-            for j in range(0, len(face)):
-                edge = face[j]
+            for j in range(0, len(face_edges)):
+                edge = face_edges[j]
                 # Get the edge end points in 3D [x, y, z] coordinates
                 n1 = [self.ds["Mesh2_node_cart_x"].values[edge[0]],
                       self.ds["Mesh2_node_cart_y"].values[edge[0]],
@@ -1101,10 +1110,14 @@ class Grid:
             if cur_face_mag_rad > np.pi:
                 print("At face: " + str(face_index) + "Problematic lat is " + str(
                     latitude_rad) + " And the cur_face_mag_rad is " + str(cur_face_mag_rad))
-            # assert(cur_face_mag_rad <= np.pi)
+                # assert(cur_face_mag_rad <= np.pi)
 
-            # Calculate the weight from each face by |intersection line length| / total perimeter
+                # Calculate the weight from each face by |intersection line length| / total perimeter
             candidate_faces_weight_list[i] = cur_face_mag_rad
+
+            # Sum up all the weights to get the total
+            candidate_faces_weight_list = np.array(candidate_faces_weight_list) / np.sum(candidate_faces_weight_list)
+            return candidate_faces_weight_list
 
         # Sum up all the weights to get the total
         candidate_faces_weight_list = np.array(candidate_faces_weight_list) / np.sum(candidate_faces_weight_list)

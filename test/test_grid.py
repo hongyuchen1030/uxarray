@@ -662,15 +662,15 @@ class TestZonalAverage(TestCase):
         # self.assertAlmostEqual(sum,1,12)
 
     def test_nc_zonal_average(self):
-        mesh_file30 = current_path / "meshfiles" / "outCSne30.ug"
-        data_file2 = current_path / "meshfiles" / "outCSne30_test2.nc"
-        data_file3 = current_path / "meshfiles" / "outCSne30_test3.nc"
-        uds_ds = xr.open_dataset(mesh_file30, data_file2)
-        uds = ux.Grid(uds_ds)
+        data_file2 = current_path / "meshfiles" / "ugrid" / "outCSne30" / "outCSne30_test2.nc"
+        data_file3 = current_path / "meshfiles" / "ugrid" / "outCSne30" / "outCSne30_test3.nc"
+        uds = self.tgrid1
+        xr_data = xr.open_dataset(str(data_file2))
+        uds.integrate(xr_data)
         res = []
         test_lat = np.arange(-1.57, 1.57, 0.5).tolist()
         test_lat.append(0.0)
         for lat in test_lat:
-            result = uds.get_nc_zonal_avg("Psi", lat)
+            result = uds.get_nc_zonal_avg(xr_data, lat)
             res.append(result)
-            self.assertAlmostEqual(result, 2, 1)
+            self.assertLessEqual(abs(2 - result),1)

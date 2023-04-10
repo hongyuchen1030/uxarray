@@ -558,7 +558,8 @@ def _normalize_in_place(node):
     """
     if len(node) != 3:
         raise RuntimeError("Input array should have a length of 3: [x, y, z]")
-    return list(np.array(node, dtype=float) / np.linalg.norm(np.array(node, dtype=float), ord=2))
+    node = [1.0 * val for val in node] # A numba supported way to convert all array into a float array
+    return list(np.array(node) / np.linalg.norm(np.array(node), ord=2))
 
 
 def _replace_fill_values(grid_var, original_fill, new_fill, new_dtype=None):
