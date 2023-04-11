@@ -641,15 +641,8 @@ class Grid:
         # second index includes second node up to padded value
         edge_nodes[:, 1] = padded_face_nodes[:, 1:].ravel()
 
-        # all edge nodes that contain a fill value
-        fill_value_mask = np.logical_or(edge_nodes[:, 0] == INT_FILL_VALUE,
-                                        edge_nodes[:, 1] == INT_FILL_VALUE)
-
-        # all edge nodes that do not contain a fill value
-        non_fill_value_mask = np.logical_not(fill_value_mask)
-
-        # filter out all invalid edges
-        edge_nodes = edge_nodes[non_fill_value_mask]
+        # # filter out all invalid edges
+        # edge_nodes = edge_nodes[non_fill_value_mask]
 
         # sorted edge nodes
         edge_nodes.sort(axis=1)
@@ -658,12 +651,19 @@ class Grid:
         edge_nodes_unique, inverse_indices = np.unique(edge_nodes,
                                                        return_inverse=True,
                                                        axis=0)
+        inverse_indices = inverse_indices.astype(INT_DTYPE)
+        # all edge nodes that contain a fill value
+        fill_value_mask = np.logical_or(edge_nodes_unique[:, 0] == INT_FILL_VALUE,
+                                        edge_nodes_unique[:, 1] == INT_FILL_VALUE)
 
-        # In mesh2_edge_nodes, we want to remove all dummy edges (edge that has "INT_FILL_VALUE" node index)
-        # But we want to preserve that in our mesh2_face_edges so make the datarray has the same dimensions
-        has_fill_value = np.logical_or(edge_nodes_unique[:, 0] == INT_FILL_VALUE,
-              edge_nodes_unique[:, 1] == INT_FILL_VALUE)
-        mesh2_edge_nodes = edge_nodes_unique[~has_fill_value]
+        # all edge nodes that do not contain a fill value
+        non_fill_value_mask = np.logical_not(fill_value_mask)
+        edge_nodes_unique = edge_nodes_unique[non_fill_value_mask]
+        # Update inverse_indices accordingly
+        indices_to_update = np.where(fill_value_mask)[0]
+        for idx in indices_to_update:
+            inverse_indices[inverse_indices == idx] = INT_FILL_VALUE
+
         inverse_indices = inverse_indices.reshape(self.nMesh2_face, self.nMaxMesh2_face_nodes)
         mesh2_face_edges = inverse_indices # We only need to store the edge index
 
@@ -674,8 +674,6 @@ class Grid:
                 "cf_role": "face_edges_connectivity",
                 "start_index": 0
             })
-        self.ds["Mesh2_edge_nodes"] = xr.DataArray(data=mesh2_edge_nodes,
-                                                   dims=["nMesh2_edge", "Two"])
 
     def buildlatlon_bounds(self):
 
