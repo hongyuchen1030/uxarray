@@ -214,8 +214,9 @@ class Grid:
 
             # Update indices accordingly
             for i, idx in enumerate(false_indices):
+                fill_value = INT_FILL_VALUE
                 indices[indices == idx] = INT_FILL_VALUE
-                indices[indices > idx] -= 1
+                indices[(indices > idx) & (indices != fill_value)] -= 1
 
         # Create coordinate DataArrays
         self.ds["Mesh2_node_x"] = xr.DataArray(data=unique_verts[:, 0],
@@ -626,45 +627,44 @@ class Grid:
         This function will add `Grid.ds.Mesh2_face_edges` to the `Grid` class, which is an integer
         DataArray of size (nMesh2_face, MaxNumNodesPerFace)
         """
-        mesh2_face_nodes = self.Mesh2_face_nodes.values
-        n = self.nMesh2_face
-        m = self.nMaxMesh2_face_nodes
+        padded_face_nodes = _close_face_nodes(self.Mesh2_face_nodes.values,
+                                              self.nMesh2_face,
+                                              self.nMaxMesh2_face_nodes)
 
-        # Then do the padding for each face to close the polygon
-        closed = np.full((n, m + 1), INT_FILL_VALUE)
-        closed[:, :-1] = np.array(mesh2_face_nodes, dtype=INT_DTYPE)
-        # We only want the index of first occurrence of INT_FILL_VALUE
-        first_fill_value_index = np.argmax(closed == INT_FILL_VALUE, axis=1)
-        first_node = mesh2_face_nodes[:, 0]
-        # Create 1D index into a 2D array
-        first_fill_idx = (m + 1) * np.arange(0, n) + first_fill_value_index
-        # replace all values at 1D index with the first_node
-        np.put(closed.ravel(), first_fill_idx, first_node)
-        pad_results = closed
-        # Now create the edge_node_connectivity
-        mesh2_edge_nodes = np.empty((n * m, 2), dtype=np.intp)
-        mesh2_edge_nodes[:, 0] = pad_results[:, :-1].ravel()
-        mesh2_edge_nodes[:, 1] = pad_results[:, 1:].ravel()
-        # Clean up the invalid edge (same node to same node except the [-1, -1] edge)
-        valid_mask = np.array(
-            list(
-                map(
-                    lambda edge: not (edge[0] == edge[1] and not np.array_equal(
-                        edge, np.array([INT_FILL_VALUE, INT_FILL_VALUE]))), mesh2_edge_nodes)))
-        mesh2_edge_nodes = mesh2_edge_nodes[valid_mask]
-        # Find the unique edge
-        mesh2_edge_nodes.sort(axis=1)
-        mesh2_edge_node_copy, inverse_indices = np.unique(ar=mesh2_edge_nodes,
-                                                          return_inverse=True,
-                                                          axis=0)
-        # TODO: Make the dummy edge index in the mesh2_face_edges as INT_FILL_VALUE
+        # construct an array of empty edge nodes where each entry is a pair of indices
+        edge_nodes = np.empty((self.nMesh2_face * self.nMaxMesh2_face_nodes, 2),
+                              dtype=INT_DTYPE)
+
+        # first index includes starting node up to non-padded value
+        edge_nodes[:, 0] = padded_face_nodes[:, :-1].ravel()
+
+        # second index includes second node up to padded value
+        edge_nodes[:, 1] = padded_face_nodes[:, 1:].ravel()
+
+        # all edge nodes that contain a fill value
+        fill_value_mask = np.logical_or(edge_nodes[:, 0] == INT_FILL_VALUE,
+                                        edge_nodes[:, 1] == INT_FILL_VALUE)
+
+        # all edge nodes that do not contain a fill value
+        non_fill_value_mask = np.logical_not(fill_value_mask)
+
+        # filter out all invalid edges
+        edge_nodes = edge_nodes[non_fill_value_mask]
+
+        # sorted edge nodes
+        edge_nodes.sort(axis=1)
+
+        # unique edge nodes
+        edge_nodes_unique, inverse_indices = np.unique(edge_nodes,
+                                                       return_inverse=True,
+                                                       axis=0)
 
         # In mesh2_edge_nodes, we want to remove all dummy edges (edge that has "INT_FILL_VALUE" node index)
         # But we want to preserve that in our mesh2_face_edges so make the datarray has the same dimensions
-        has_fill_value = np.logical_or(mesh2_edge_node_copy[:, 0] == INT_FILL_VALUE,
-              mesh2_edge_node_copy[:, 1] == INT_FILL_VALUE)
-        mesh2_edge_nodes = mesh2_edge_node_copy[~has_fill_value]
-        inverse_indices = inverse_indices.reshape(n, m)
+        has_fill_value = np.logical_or(edge_nodes_unique[:, 0] == INT_FILL_VALUE,
+              edge_nodes_unique[:, 1] == INT_FILL_VALUE)
+        mesh2_edge_nodes = edge_nodes_unique[~has_fill_value]
+        inverse_indices = inverse_indices.reshape(self.nMesh2_face, self.nMaxMesh2_face_nodes)
         mesh2_face_edges = inverse_indices # We only need to store the edge index
 
         self.ds["Mesh2_face_edges"] = xr.DataArray(
@@ -721,11 +721,13 @@ class Grid:
                     face_edges, [v1, v2])
 
             if num_intersects % 2 != 0:
+                if i==0 and j == 3:
+                    pass
                 # if the face_edges contains the pole point
                 for j in range(0, len(face_edges)):
                     edge = face_edges[j]
                     # Skip the dummy edges
-                    if edge[0] == -1 or edge[1] == -1:
+                    if edge[0] == INT_FILL_VALUE or edge[1] == INT_FILL_VALUE:
                         continue
                     # All the following calculation is based on the 3D XYZ coord
                     # And assume the self.ds["Mesh2_node_x"] always store the lon info
@@ -790,9 +792,11 @@ class Grid:
             else:
                 # normal face_edges
                 for j in range(0, len(face_edges)):
+                    if i == 0 and j == 3:
+                        pass
                     edge = face_edges[j]
                     # Skip the dummy edges
-                    if edge[0] == -1 or edge[1] == -1:
+                    if edge[0] == INT_FILL_VALUE or edge[1] == INT_FILL_VALUE:
                         continue
 
                     # For each edge, we only need to consider the first end point in each loop
@@ -877,7 +881,10 @@ class Grid:
                         temp_latlon_array[i] = insert_pt_in_latlonbox(
                             copy.deepcopy(temp_latlon_array[i]),
                             [d_lat_rad, d_lon_rad])
-
+            if temp_latlon_array[i][0][0] == temp_latlon_array[i][0][1]:
+                pass
+            if temp_latlon_array[i][1][0] == temp_latlon_array[i][1][1]:
+                pass
             assert temp_latlon_array[i][0][0] != temp_latlon_array[i][0][1]
             assert temp_latlon_array[i][1][0] != temp_latlon_array[i][1][1]
             lat_list = temp_latlon_array[i][0]
@@ -904,7 +911,7 @@ class Grid:
         edge_list = []
         for edge in face:
             # Skip the dump edges
-            if edge[0] == -1 or edge[1] == -1:
+            if edge[0] == INT_FILL_VALUE or edge[1] == INT_FILL_VALUE:
                 continue
             n1 = [
                 self.ds["Mesh2_node_x"].values[edge[0]],
@@ -943,22 +950,9 @@ class Grid:
         num_intersection = 0
         for edge in face:
             # Skip the dump edges
-            if edge[0] == -1 or edge[1] == -1:
+            if edge[0] == INT_FILL_VALUE or edge[1] == INT_FILL_VALUE:
                 continue
             # All the following calculation is based on the 3D XYZ coord
-
-            # [Test]
-            w1_rad = [
-                self.ds["Mesh2_node_x"].values[edge[0]],
-                self.ds["Mesh2_node_y"].values[edge[0]]
-            ]
-
-            w2_rad = [
-                self.ds["Mesh2_node_x"].values[edge[1]],
-                self.ds["Mesh2_node_y"].values[edge[1]]
-            ]
-            w1 = []
-            w2 = []
 
             # Convert the 2D [lon, lat] to 3D [x, y, z]
             w1 = _convert_node_lonlat_rad_to_xyz([
@@ -985,7 +979,7 @@ class Grid:
         if len(intersection_set) == 1:
             intersection_pt = intersection_set.pop()
             for edge in face:
-                if edge[0] == -1 or edge[1] == -1:
+                if edge[0] == INT_FILL_VALUE or edge[1] == INT_FILL_VALUE:
                     continue
                 w1 = _convert_node_lonlat_rad_to_xyz([
                     np.deg2rad(self.ds["Mesh2_node_x"].values[edge[0]]),

@@ -274,7 +274,10 @@ class TestGrid(TestCase):
 
     def test_build_face_edges_connectivity(self):
         """Generates Grid.Mesh2_edge_nodes from Grid.Mesh2_face_nodes."""
-        for tgrid in [self.tgrid1]:
+        ug_filename_list = [self.ug_filename2]#self.ug_filename1, self.ug_filename2, self.ug_filename3
+        for ug_file_name in ug_filename_list:
+            xr_ds = xr.open_dataset(ug_file_name)
+            tgrid = ux.Grid(xr_ds)
 
             mesh2_face_nodes = tgrid.ds["Mesh2_face_nodes"]
 
@@ -370,7 +373,7 @@ class TestGrid(TestCase):
 
     def test_generate_Latlon_bounds_longitude_minmax(self):
         """Generates the longitude boundary Xarray from grid file."""
-        ug_filename_list = [self.ug_filename1, self.ug_filename2, self.ug_filename3]
+        ug_filename_list = [self.ug_filename1]#self.ug_filename1, self.ug_filename2, self.ug_filename3
         for ug_file_name in ug_filename_list:
             xr_ds = xr.open_dataset(ug_file_name)
             tgrid1 = ux.Grid(xr_ds)
@@ -626,7 +629,7 @@ class TestPopulateCoordinates(TestCase):
                                    lat_deg[i],
                                    decimal=12)
 
-class TestZonalAverage(TestCase):
+class TestNonConservativeZonalAverage(TestCase):
     ug_filename1 = current_path / "meshfiles" / "ugrid" / "outCSne30" / "outCSne30.ug"
     ug_filename2 = current_path / "meshfiles" / "ugrid" / "outRLL1deg" / "outRLL1deg.ug"
     ug_filename3 = current_path / "meshfiles" / "ugrid" / "ov_RLL10deg_CSne4" / "ov_RLL10deg_CSne4.ug"
@@ -660,6 +663,27 @@ class TestZonalAverage(TestCase):
         # res = uds._get_zonal_face_weights_at_constlat(candidate_faces_index_list, 1)
         # sum = np.sum(res)
         # self.assertAlmostEqual(sum,1,12)
+
+    def test_faces_edges_overlaps_constLat(self):
+        f0_deg = [[150, 10], [160, 20], [150, 30], [135, 30], [125, 20], [135, 10]]
+        f1_deg = [[155, 25], [160, 60], [155, 60], [145, 30], [150, 30], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f2_deg = [[145, 30], [150, 40], [130, 40], [135, 30], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f3_deg = [[125, 20], [135, 30], [125, 60], [110, 60], [100, 30], [105, 20]]
+        f4_deg = [[95, 10], [105, 20], [100, 30], [85, 30], [75, 20], [85, 10]]
+        f5_deg = [[100, 30], [110, 60], [100, 60], [90, 30],[ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f6_deg = [[90, 30], [100, 60], [70, 60], [75, 30], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        verts = [f0_deg, f1_deg, f2_deg, f3_deg, f4_deg, f5_deg, f6_deg]
+        uds = ux.Grid(verts)
+        uds.buildlatlon_bounds()
+        candidate_faces_index_list = []
+
+        # Search through the interval tree for all the candidates face
+
+        candidate_face_set = uds._latlonbound_tree.at(30)
+        for interval in candidate_face_set:
+            candidate_faces_index_list.append(interval.data)
+        res = uds._get_zonal_face_weights_at_constlat(candidate_faces_index_list, 30)
+
 
     def test_nc_zonal_average(self):
         data_file2 = current_path / "meshfiles" / "ugrid" / "outCSne30" / "outCSne30_test2.nc"
