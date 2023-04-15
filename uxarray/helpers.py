@@ -672,9 +672,14 @@ def _get_approx_intersection_point_gcr_constlat(gcr_cart, const_lat_rad):
     max_lat = get_gcr_max_lat_rad(gcr_cart)
     if not _within(min_lat, const_lat_rad, max_lat):
         return res
-    # If z1 = z2 = 0 then the great circle arc corresponds to the equator.
+    # If z1 = z2 = 0 then the great circle arc corresponds to the equator， if the constant lat is not 0, then it will
+    # not intersect.
     if n1[2] == n2[2] == 0 and const_lat_rad != 0:
         return res
+    elif n1[2] == 0 and const_lat_rad == 0:
+        res[0] = n1
+    elif n2[2] == 0 and const_lat_rad == 0:
+        res[1] = n2
 
     # To maximize conditioning, one should choose x1 to satisfy |z1| ≥ |z2|. If this inequality does not hold,
     # x1 and x2 should be swapped first
@@ -691,6 +696,9 @@ def _get_approx_intersection_point_gcr_constlat(gcr_cart, const_lat_rad):
         b = 0.0
     else:
         b = 2 * z_0 * np.dot(n1, n2) - 2 * z_0 * n2[2] * (1 / n1[2])
+        if np.isnan(b):# This means one of the end point is at the equator, directly return the res since this case
+            # is taken cared of above
+            return res
     c = 0.0 if z_0 == 0.0 else (z_0 ** 2) * (n1[2] ** (-2)) - 1
     if b * b - 4 * a * c < 0:
         return res
@@ -869,3 +877,7 @@ def _close_face_nodes(Mesh2_face_nodes, nMesh2_face, nMaxMesh2_face_nodes):
     np.put(closed.ravel(), first_fv_idx_1d, first_node_value)
 
     return closed
+
+def __delete_edge_indexs(edge_index_to_delete, inverse_edge_index_raw):
+    for void_edge in edge_index_to_delete:
+        pass

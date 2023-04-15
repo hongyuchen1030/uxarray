@@ -665,24 +665,28 @@ class TestNonConservativeZonalAverage(TestCase):
         # self.assertAlmostEqual(sum,1,12)
 
     def test_faces_edges_overlaps_constLat(self):
-        f0_deg = [[150, 10], [160, 20], [150, 30], [135, 30], [125, 20], [135, 10]]
-        f1_deg = [[155, 25], [160, 60], [155, 60], [145, 30], [150, 30], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
-        f2_deg = [[145, 30], [150, 40], [130, 40], [135, 30], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
-        f3_deg = [[125, 20], [135, 30], [125, 60], [110, 60], [100, 30], [105, 20]]
-        f4_deg = [[95, 10], [105, 20], [100, 30], [85, 30], [75, 20], [85, 10]]
-        f5_deg = [[100, 30], [110, 60], [100, 60], [90, 30],[ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
-        f6_deg = [[90, 30], [100, 60], [70, 60], [75, 30], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f0_deg = [[120, -20], [130, -10], [120, 0], [105, 0], [95, -10], [105, -20]]
+        f1_deg = [[120, 0], [120, 10],[115, 0], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE],[ux.INT_FILL_VALUE, ux.INT_FILL_VALUE], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f2_deg = [[115, 0], [120, 10], [100, 10], [105, 0], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE],
+                  [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f3_deg = [[95, -10], [105, 0], [95, 30], [80, 30], [70, 0], [75, -10]]
+        f4_deg = [[65, -20], [75, -10], [70, 0], [55, 0], [45, -10], [55, -20]]
+        f5_deg = [[70, 0], [80, 30], [70, 30], [60, 0], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE],
+                  [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+        f6_deg = [[60, 0], [70, 30], [40, 30], [45, 0], [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE],
+                  [ux.INT_FILL_VALUE, ux.INT_FILL_VALUE]]
+
         verts = [f0_deg, f1_deg, f2_deg, f3_deg, f4_deg, f5_deg, f6_deg]
         uds = ux.Grid(verts)
         uds.buildlatlon_bounds()
         candidate_faces_index_list = []
 
         # Search through the interval tree for all the candidates face
-
-        candidate_face_set = uds._latlonbound_tree.at(30)
+        const_lat_rad = np.deg2rad(0)
+        candidate_face_set = uds._latlonbound_tree.at(const_lat_rad)
         for interval in candidate_face_set:
             candidate_faces_index_list.append(interval.data)
-        res = uds._get_zonal_face_weights_at_constlat(candidate_faces_index_list, 30)
+        res = uds._get_zonal_face_weights_at_constlat(candidate_faces_index_list, const_lat_rad)
 
 
     def test_nc_zonal_average(self):

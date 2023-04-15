@@ -590,7 +590,7 @@ class Grid:
         non_fill_value_mask = np.logical_not(fill_value_mask)
 
         # filter out all invalid edges
-        edge_nodes = edge_nodes[non_fill_value_mask]
+        # edge_nodes = edge_nodes[non_fill_value_mask]
 
         # sorted edge nodes
         edge_nodes.sort(axis=1)
@@ -599,6 +599,20 @@ class Grid:
         edge_nodes_unique, inverse_indices = np.unique(edge_nodes,
                                                        return_inverse=True,
                                                        axis=0)
+        inverse_indices = inverse_indices.astype(INT_DTYPE)
+        # all edge nodes that contain a fill value
+        fill_value_mask = np.logical_or(edge_nodes_unique[:, 0] == INT_FILL_VALUE,
+                                        edge_nodes_unique[:, 1] == INT_FILL_VALUE)
+
+        # all edge nodes that do not contain a fill value
+        non_fill_value_mask = np.logical_not(fill_value_mask)
+        edge_nodes_unique = edge_nodes_unique[non_fill_value_mask]
+        # Update inverse_indices accordingly
+        indices_to_update = np.where(fill_value_mask)[0]
+        for idx in indices_to_update:
+            inverse_indices[inverse_indices == idx] = INT_FILL_VALUE
+            inverse_indices[(inverse_indices > idx) & (inverse_indices != INT_FILL_VALUE)] -= 1
+
         # add mesh2_edge_nodes to internal dataset
         self.ds['Mesh2_edge_nodes'] = xr.DataArray(
             edge_nodes_unique,
@@ -661,8 +675,18 @@ class Grid:
         edge_nodes_unique = edge_nodes_unique[non_fill_value_mask]
         # Update inverse_indices accordingly
         indices_to_update = np.where(fill_value_mask)[0]
-        for idx in indices_to_update:
-            inverse_indices[inverse_indices == idx] = INT_FILL_VALUE
+
+        remove_mask = np.isin(inverse_indices, indices_to_update)
+        inverse_indices[remove_mask] = INT_FILL_VALUE
+
+        # Compute the indices where inverse_indices exceeds the values in indices_to_update
+        # And subtract the corresponding indexes from `inverse_indices`
+        indexes = np.searchsorted(indices_to_update, inverse_indices, side='right')
+        indexes = indexes.astype(INT_DTYPE)
+        inverse_indices = inverse_indices.astype(INT_DTYPE)
+        for i in range(0, len(inverse_indices)):
+            if inverse_indices[i] != INT_FILL_VALUE:
+                inverse_indices[i] -= indexes[i]
 
         inverse_indices = inverse_indices.reshape(self.nMesh2_face, self.nMaxMesh2_face_nodes)
         mesh2_face_edges = inverse_indices # We only need to store the edge index
@@ -680,6 +704,7 @@ class Grid:
         # First make sure the Grid object has the Mesh2_face_edges
 
         if "Mesh2_face_edges" not in self.ds.keys():
+            self._build_edge_node_connectivity()
             self.build_face_edges_connectivity()
 
         if "Mesh2_node_cart_x" not in self.ds.keys():
@@ -695,13 +720,27 @@ class Grid:
         self._latlonbound_tree = IntervalTree()
 
         for i in range(0, len(self.ds["Mesh2_face_nodes"])):
-            face_edges = [[0, 0]] * len(self.ds["Mesh2_face_nodes"][i])
-            for j in range(1, len(self.ds["Mesh2_face_nodes"][i])):
-                face_edges[j - 1] = [self.ds["Mesh2_face_nodes"].values[i][j - 1],
-                                     self.ds["Mesh2_face_nodes"].values[i][j]]
-            face_edges[len(self.ds["Mesh2_face_nodes"][i]) - 1] = [
-                self.ds["Mesh2_face_nodes"].values[i][len(self.ds["Mesh2_face_nodes"][i]) - 1],
-                self.ds["Mesh2_face_nodes"].values[i][0]]
+            face_edges = np.zeros((len(self.ds["Mesh2_face_edges"].values[i]), 2), dtype=INT_DTYPE)
+            face_edges = face_edges.astype(INT_DTYPE)
+            for iter in range(0, len(self.ds["Mesh2_face_edges"].values[i])):
+                edge_idx = self.ds["Mesh2_face_edges"].values[i][iter]
+                if edge_idx == INT_FILL_VALUE:
+                    edge_nodes = [INT_FILL_VALUE, INT_FILL_VALUE]
+                else:
+                    edge_nodes = self.ds['Mesh2_edge_nodes'].values[edge_idx]
+                face_edges[iter] = edge_nodes
+            #sort edge nodes in counter-clockwise order
+            starting_two_nodes_index = [self.ds["Mesh2_face_nodes"][i][0],self.ds["Mesh2_face_nodes"][i][1]]
+            face_edges[0] = starting_two_nodes_index
+            for idx in range(1, len(face_edges)):
+                if face_edges[idx][0] == face_edges[idx - 1][1]:
+                    continue
+                else:
+                    # Swap the node index in this edge
+                    temp = face_edges[idx][0]
+                    face_edges[idx][0] = face_edges[idx][1]
+                    face_edges[idx][1] = temp
+
             # Check if face_edges contains pole points
             _lambda = 0
             v1 = [0, 0, 1]
@@ -1037,16 +1076,34 @@ class Grid:
         # First calculate the perimeter this constant latitude circle
         candidate_faces_weight_list = [0.0] * len(candidate_faces_index_list)
 
+        # An interval tree that stores the edges that are overlaped by the constant latitude
+        overlap_interval_tree = IntervalTree()
+
         for i in range(0, len(candidate_faces_index_list)):
             face_index = candidate_faces_index_list[i]
+            if face_index == 6 or face_index == 1:
+                pass
             [face_lon_bound_min, face_lon_bound_max] = self.ds["Mesh2_latlon_bounds"].values[face_index][1]
-            face_edges = [[0, 0]] * len(self.ds["Mesh2_face_nodes"][i])
-            for j in range(1, len(self.ds["Mesh2_face_nodes"][i])):
-                face_edges[j - 1] = [self.ds["Mesh2_face_nodes"].values[i][j - 1],
-                                     self.ds["Mesh2_face_nodes"].values[i][j]]
-            face_edges[len(self.ds["Mesh2_face_nodes"][i]) - 1] = [
-                self.ds["Mesh2_face_nodes"].values[i][len(self.ds["Mesh2_face_nodes"][i]) - 1],
-                self.ds["Mesh2_face_nodes"].values[i][0]]
+            face_edges = np.zeros((len(self.ds["Mesh2_face_edges"].values[i]), 2), dtype=INT_DTYPE)
+            face_edges = face_edges.astype(INT_DTYPE)
+            for iter in range(0, len(self.ds["Mesh2_face_edges"].values[i])):
+                edge_idx = self.ds["Mesh2_face_edges"].values[i][iter]
+                if edge_idx == INT_FILL_VALUE:
+                    edge_nodes = [INT_FILL_VALUE, INT_FILL_VALUE]
+                else:
+                    edge_nodes = self.ds['Mesh2_edge_nodes'].values[edge_idx]
+                face_edges[iter] = edge_nodes
+            #sort edge nodes in counter-clockwise order
+            starting_two_nodes_index = [self.ds["Mesh2_face_nodes"][i][0],self.ds["Mesh2_face_nodes"][i][1]]
+            face_edges[0] = starting_two_nodes_index
+            for idx in range(1, len(face_edges)):
+                if face_edges[idx][0] == face_edges[idx - 1][1]:
+                    continue
+                else:
+                    # Swap the node index in this edge
+                    temp = face_edges[idx][0]
+                    face_edges[idx][0] = face_edges[idx][1]
+                    face_edges[idx][1] = temp
 
             pt_lon_min = 3 * np.pi
             pt_lon_max = -3 * np.pi
@@ -1054,6 +1111,10 @@ class Grid:
             intersections_pts_list_lonlat = []
             for j in range(0, len(face_edges)):
                 edge = face_edges[j]
+
+                #Skip the dummy edge
+                if edge[0] == INT_FILL_VALUE or edge[1] == INT_FILL_VALUE:
+                    continue
                 # Get the edge end points in 3D [x, y, z] coordinates
                 n1 = [self.ds["Mesh2_node_cart_x"].values[edge[0]],
                       self.ds["Mesh2_node_cart_y"].values[edge[0]],
@@ -1069,20 +1130,26 @@ class Grid:
                     continue
                 elif intersections[0] != [-1, -1, -1] and intersections[1] != [-1, -1, -1]:
                     # The constant latitude goes across this edge ( 1 in and 1 out):
-                    pts1_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[0])
-                    pts2_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[1])
                     intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[0]))
                     intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
                 else:
                     if intersections[0] != [-1, -1, -1]:
-                        pts1_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[0])
                         intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[0]))
                     else:
-                        pts2_lonlat = _convert_node_xyz_to_lonlat_rad(intersections[1])
                         intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
-            if len(intersections_pts_list_lonlat) == 2:
+
+            # If an edge of a face is overlapped by the constant lat, then it will have 4 non-unique intersection pts
+            unique_intersection = np.unique(intersections_pts_list_lonlat)
+            if len(unique_intersection) == 2:
+                # The normal convex case:
                 [pt_lon_min, pt_lon_max] = np.sort(
-                    [intersections_pts_list_lonlat[0][0], intersections_pts_list_lonlat[1][0]])
+                    [unique_intersection[0][0], unique_intersection[1][0]])
+            elif len(unique_intersection) != 0:
+                # The concave cases
+                raise ValueError("UXarray doesn't support concave face ["+str(face_index)+"] with intersections points as ["+str(len(unique_intersection))+"] currently, please modify your grids accordingly")
+            elif len(unique_intersection) == 0:
+                # No intersections are found in this face
+                raise ValueError("No intersections are found for face ["+str(face_index)+"], please make sure the buil_latlon_box generates the correct results")
             if face_lon_bound_min < face_lon_bound_max:
                 # Normal case
                 cur_face_mag_rad = pt_lon_max - pt_lon_min
@@ -1099,19 +1166,22 @@ class Grid:
                 else:
                     # They're at the different side of the 0-lon
                     cur_face_mag_rad = 2 * np.pi - pt_lon_max + pt_lon_min
-            if cur_face_mag_rad > np.pi:
+            if np.abs(cur_face_mag_rad) > 2 * np.pi:
                 print("At face: " + str(face_index) + "Problematic lat is " + str(
                     latitude_rad) + " And the cur_face_mag_rad is " + str(cur_face_mag_rad))
                 # assert(cur_face_mag_rad <= np.pi)
 
-                # Calculate the weight from each face by |intersection line length| / total perimeter
+            #TODO：Marginal Case when two faces share an edge that overlaps with the constant latitude
+            if n1_lonlat[1] == n2_lonlat[1] and (np.abs(np.abs(n1_lonlat[1] - n2_lonlat[1]) - np.abs(cur_face_mag_rad)) < 1e-12):
+                # An edge overlaps with the constant latitude
+                overlap_interval_tree.addi(n1_lonlat[0], n2_lonlat[0], face_index)
+
             candidate_faces_weight_list[i] = cur_face_mag_rad
 
-            # Sum up all the weights to get the total
-            candidate_faces_weight_list = np.array(candidate_faces_weight_list) / np.sum(candidate_faces_weight_list)
-            return candidate_faces_weight_list
-
-        # Sum up all the weights to get the total
+        # Break the overlapped interval into the smallest fragments
+        overlap_interval_tree.split_overlaps()
+        overlaps_intervals = sorted(overlap_interval_tree.all_intervals)
+        # Calculate the weight from each face by |intersection line length| / total perimeter
         candidate_faces_weight_list = np.array(candidate_faces_weight_list) / np.sum(candidate_faces_weight_list)
         return candidate_faces_weight_list
 
