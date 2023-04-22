@@ -8,7 +8,7 @@ from pathlib import Path
 import xarray as xr
 import uxarray as ux
 import numpy.testing as nt
-from uxarray import helpers, _latlonbound_utilities
+from uxarray import helpers, _latlonbound_utilities, interval_tree_helper
 
 try:
     import constants
@@ -679,11 +679,14 @@ class TestNonConservativeZonalAverage(TestCase):
         verts = [f0_deg, f1_deg, f2_deg, f3_deg, f4_deg, f5_deg, f6_deg]
         uds = ux.Grid(verts)
         uds.buildlatlon_bounds()
+
         candidate_faces_index_list = []
 
         # Search through the interval tree for all the candidates face
         const_lat_rad = np.deg2rad(0)
-        candidate_face_set = uds._latlonbound_tree.at(const_lat_rad)
+
+        tree_helpers = interval_tree_helper.IntervalTreeHelper(uds._latlonbound_tree)
+        candidate_face_set = tree_helpers.up_bnd_inclusive_at(const_lat_rad)
         for interval in candidate_face_set:
             candidate_faces_index_list.append(interval.data)
         res = uds._get_zonal_face_weights_at_constlat(candidate_faces_index_list, const_lat_rad)
@@ -702,3 +705,4 @@ class TestNonConservativeZonalAverage(TestCase):
             result = uds.get_nc_zonal_avg(xr_data, lat)
             res.append(result)
             self.assertLessEqual(abs(2 - result),1)
+

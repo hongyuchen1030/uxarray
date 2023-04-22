@@ -10,7 +10,7 @@ from ._ugrid import _read_ugrid, _encode_ugrid
 from ._shapefile import _read_shpfile
 from ._scrip import _read_scrip, _encode_scrip
 from ._mpas import _read_mpas
-from .helpers import get_all_face_area_from_coords, parse_grid_type, _convert_node_xyz_to_lonlat_rad, _convert_node_lonlat_rad_to_xyz, _normalize_in_place, _within, _get_radius_of_latitude_rad, get_intersection_pt, _close_face_nodes
+from .helpers import get_all_face_area_from_coords, parse_grid_type, _convert_node_xyz_to_lonlat_rad, _convert_node_lonlat_rad_to_xyz, _normalize_in_place, _within, _get_radius_of_latitude_rad, get_intersection_point_gcr_constlat, _close_face_nodes
 from .constants import INT_DTYPE, INT_FILL_VALUE
 from ._latlonbound_utilities import insert_pt_in_latlonbox, get_intersection_point_gcr_gcr
 
@@ -934,7 +934,7 @@ class Grid:
         # Helper function to get the average longitude of each edge in sorted order (ascending0
 
     def __avg_edges_longitude(self, face):
-        """Helper function to get the average longitude of each edge in sorted order (ascending0
+        """Helper function to get the average longitude of each edge in sorted order (ascending)
         Parameters
         ----------
         edge_list: 2D float array:
@@ -970,7 +970,7 @@ class Grid:
         # Count the number of total intersections of an edge and face (Algo. 2.4 Determining if a grid cell contains a
         # given point)
 
-    def __count_face_edge_intersection(self, face, ref_edge, i=-1):
+    def __count_face_edge_intersection(self, face, ref_edge):
         """Helper function to count the total number of intersections points
         between the reference edge and a face.
         Parameters
@@ -1081,20 +1081,18 @@ class Grid:
 
         for i in range(0, len(candidate_faces_index_list)):
             face_index = candidate_faces_index_list[i]
-            if face_index == 6 or face_index == 1:
-                pass
             [face_lon_bound_min, face_lon_bound_max] = self.ds["Mesh2_latlon_bounds"].values[face_index][1]
-            face_edges = np.zeros((len(self.ds["Mesh2_face_edges"].values[i]), 2), dtype=INT_DTYPE)
+            face_edges = np.zeros((len(self.ds["Mesh2_face_edges"].values[face_index]), 2), dtype=INT_DTYPE)
             face_edges = face_edges.astype(INT_DTYPE)
-            for iter in range(0, len(self.ds["Mesh2_face_edges"].values[i])):
-                edge_idx = self.ds["Mesh2_face_edges"].values[i][iter]
+            for iter in range(0, len(self.ds["Mesh2_face_edges"].values[face_index])):
+                edge_idx = self.ds["Mesh2_face_edges"].values[face_index][iter]
                 if edge_idx == INT_FILL_VALUE:
                     edge_nodes = [INT_FILL_VALUE, INT_FILL_VALUE]
                 else:
                     edge_nodes = self.ds['Mesh2_edge_nodes'].values[edge_idx]
                 face_edges[iter] = edge_nodes
             #sort edge nodes in counter-clockwise order
-            starting_two_nodes_index = [self.ds["Mesh2_face_nodes"][i][0],self.ds["Mesh2_face_nodes"][i][1]]
+            starting_two_nodes_index = [self.ds["Mesh2_face_nodes"][face_index][0],self.ds["Mesh2_face_nodes"][face_index][1]]
             face_edges[0] = starting_two_nodes_index
             for idx in range(1, len(face_edges)):
                 if face_edges[idx][0] == face_edges[idx - 1][1]:
@@ -1124,7 +1122,7 @@ class Grid:
                       self.ds["Mesh2_node_cart_z"].values[edge[1]]]
                 n1_lonlat = _convert_node_xyz_to_lonlat_rad(n1)
                 n2_lonlat = _convert_node_xyz_to_lonlat_rad(n2)
-                intersections = get_intersection_pt([n1, n2], latitude_rad)
+                intersections = get_intersection_point_gcr_constlat([n1, n2], latitude_rad)
                 if intersections[0] == [-1, -1, -1] and intersections[1] == [-1, -1, -1]:
                     # The constant latitude didn't cross this edge
                     continue
@@ -1139,7 +1137,7 @@ class Grid:
                         intersections_pts_list_lonlat.append(_convert_node_xyz_to_lonlat_rad(intersections[1]))
 
             # If an edge of a face is overlapped by the constant lat, then it will have 4 non-unique intersection pts
-            unique_intersection = np.unique(intersections_pts_list_lonlat)
+            unique_intersection = np.unique(intersections_pts_list_lonlat, axis=0)
             if len(unique_intersection) == 2:
                 # The normal convex case:
                 [pt_lon_min, pt_lon_max] = np.sort(
@@ -1224,7 +1222,7 @@ class Grid:
                       self.ds["Mesh2_node_cart_z"].values[edge[1]]]
 
                 for lat_bound in latitude_rad_range:
-                    intersections = get_intersection_pt([n1, n2], lat_bound)
+                    intersections = get_intersection_point_gcr_constlat([n1, n2], lat_bound)
                     if intersections[0] == [-1, -1, -1] and intersections[1] == [-1, -1, -1]:
                         # The constant latitude didn't cross this edge
                         continue

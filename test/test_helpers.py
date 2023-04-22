@@ -165,3 +165,33 @@ class TestConstants(TestCase):
                                                    original_fill=-1,
                                                    new_fill=INT_FILL_VALUE,
                                                    new_dtype=np.int16)
+
+
+class TestIntervalsBreakdown(TestCase):
+    def test_break_intervals_dense(self):
+        intervals = [(0, 1, 0), (0, 2, 1), (1, 2, 2), (2, 3, 3)]
+
+        interval_faces_map = ux.break_intervals(intervals)
+
+        expected_result = {(0, 1): [0, 1], (1, 2): [1, 2], (2, 3): [3]}
+
+        self.assertEqual(expected_result, interval_faces_map)
+
+    def test_break_intervals_loose(self):
+        intervals = [(0, 1, 0), (2, 3, 1), (2.5, 3.5, 2), (3.5, 4, 3)]
+
+        interval_faces_map = ux.break_intervals(intervals)
+
+        expected_result = {(0, 1): [0], (2, 2.5): [1], (2.5, 3): [1, 2], (3, 3.5): [2], (3.5, 4): [3]}
+
+        self.assertEqual(expected_result, interval_faces_map)
+
+    def test_break_intervals_envelope(self):
+        intervals = [(0, 1, 0), (2, 3, 1), (2.1, 2.8, 2), (2.9, 3, 3), (4, 5, 4), (4.5, 6, 5)]
+
+        interval_faces_map = ux.break_intervals(intervals)
+
+        expected_result = {(0, 1): [0], (2, 2.1): [1], (2.1, 2.8): [1, 2], (2.8, 2.9): [1], (2.9, 3): [1, 3],
+                           (4, 4.5): [4], (4.5, 5): [4, 5], (5, 6): [5]}
+
+        self.assertEqual(expected_result, interval_faces_map)

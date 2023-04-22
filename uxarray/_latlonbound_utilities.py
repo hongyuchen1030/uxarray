@@ -363,9 +363,6 @@ def get_intersection_point_gcr_gcr(w0, w1, v0, v1):
     x1 = _normalize_in_place(np.cross(norm_w0w1, norm_v0v1).tolist())
     x2 = [-x1[0], -x1[1], -x1[2]]
 
-    # if x1_deg[0] == 180. and np.absolute(x1_deg[1] - (-45)) <= 0.00001 :
-    #     vector_plot([w0,w1,v0,v1, x1])
-
     # Find out whether X1 or X2 is within the interval [w0, w1]
     if _pt_within_gcr(x1, [w0, w1]) and _pt_within_gcr(x1, [v0, v1]):
         return x1
@@ -376,15 +373,6 @@ def get_intersection_point_gcr_gcr(w0, w1, v0, v1):
     else:
         return [-1, -1, -1]  # Intersection out of the interval or
 
-
-    # if _within(w0[0], x1[0], w1[0]) and _within(w0[1], x1[1], w1[1]) and _within(w0[2], x1[2], w1[2]):
-    #     return x1
-    # elif _within(w0[0], x2[0], w1[0]) and _within(w0[1], x2[1], w1[1]) and _within(w0[2], x2[2], w1[2]):
-    #     return x2
-    # elif x1[0] == 0 and x1[1] == 0 and x1[2] == 0:
-    #     return [0, 0, 0]  # two vectors are parallel to each other
-    # else:
-    #     return [-1, -1, -1]  # Intersection out of the interval or
 
 
 # Helper function for the test_generate_Latlon_bounds_longitude_minmax

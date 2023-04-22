@@ -720,7 +720,7 @@ def _get_approx_intersection_point_gcr_constlat(gcr_cart, const_lat_rad):
     return res
 
 # Get the intersection point between a GCR and const Lat
-def get_intersection_pt(gcr_cart, const_lat_rad):
+def get_intersection_point_gcr_constlat(gcr_cart, const_lat_rad):
     gcr_lonlat_rad = list(map(_convert_node_xyz_to_lonlat_rad,gcr_cart))
     const_lat_z = np.sin(const_lat_rad)
     initial_guess = _get_approx_intersection_point_gcr_constlat(gcr_cart, const_lat_rad)
@@ -791,8 +791,6 @@ def _sort_intersection_pts_with_lon(pts_lonlat_rad_list, longitude_bound_rad):
 
     res.sort()
     return res
-
-
 
 def _get_cart_vector_magnitude(start, end):
     x1 = start
@@ -878,6 +876,41 @@ def _close_face_nodes(Mesh2_face_nodes, nMesh2_face, nMaxMesh2_face_nodes):
 
     return closed
 
-def __delete_edge_indexs(edge_index_to_delete, inverse_edge_index_raw):
-    for void_edge in edge_index_to_delete:
-        pass
+
+def break_intervals(intervals):
+    # Initialize the result dictionary
+    interval_faces_map = {}
+
+    # Store the endpoints of the intervals and whether it's the start/end of that interval
+    endpoints = []
+    for interval in intervals:
+        endpoints.append((interval[0], "start", interval[2]))
+        endpoints.append((interval[1], "end", interval[2]))
+
+    # Sort the endpoints by position
+    endpoints.sort()
+
+    # Initialize an empty set to keep track of the faces that are currently overlapping
+    active_faces = set()
+    last_position = -1
+
+    # Iterate through the endpoints and update the active set and interval_faces_map accordingly
+    for pt_pos, flag, face_id in endpoints:
+        if flag == "start":
+            if active_faces and last_position != pt_pos:
+                interval_faces_map[(last_position, pt_pos)] = list(active_faces)
+            active_faces.add(face_id)
+        else:
+            if last_position != pt_pos:
+                interval_faces_map[(last_position, pt_pos)] = list(active_faces)
+            active_faces.remove(face_id)
+        last_position = pt_pos
+
+    return interval_faces_map
+
+
+
+
+
+
+
