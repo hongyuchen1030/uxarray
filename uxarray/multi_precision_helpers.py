@@ -274,3 +274,20 @@ def mp_norm(vector):
     """
     norm_squared = gmpy2.fsum(mp_dot(v, v) for v in vector)
     return gmpy2.sqrt(norm_squared)
+
+def is_mpfr_array(arr):
+    """
+    Check if the input array contains elements of mpfr datatype.
+
+    Parameters
+    ----------
+    arr : numpy.array
+        The input array.
+
+    Returns
+    -------
+    bool
+        True if the array contains elements of mpfr datatype, False otherwise.
+    """
+    is_mpfr = np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))
+    return np.any(is_mpfr(arr))

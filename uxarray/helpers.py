@@ -896,6 +896,8 @@ def point_within_GCR(pt, gcr_cart):
     GCRv0_lonlat = node_xyz_to_lonlat_rad(gcr_cart[0])
     GCRv1_lonlat = node_xyz_to_lonlat_rad(gcr_cart[1])
 
+    # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
+
     # Check if the GCR is presented in the multiprecision format
     if np.any(
             np.logical_or(
@@ -1010,6 +1012,32 @@ def is_between(p: Union[float, gmpy2.mpfr], q: Union[float, gmpy2.mpfr],
     else:
         return p <= q <= r or r <= q <= p
 
+import numpy as np
+import math
+
+def _angle_of_2_vectors(u, v):
+    """
+    Calculate the angle between two 3D vectors u and v in radians.
+
+    Parameters
+    ----------
+    u : numpy.array
+        The first 3D vector.
+    v : numpy.array
+        The second 3D vector.
+
+    Returns
+    -------
+    float
+        The angle between u and v in radians.
+    """
+    v_norm_times_u = np.linalg.norm(v) * u
+    u_norm_times_v = np.linalg.norm(u) * v
+    vec_minus = v_norm_times_u - u_norm_times_v
+    vec_sum = v_norm_times_u + u_norm_times_v
+    angle_u_v_rad = 2 * np.arctan2(np.linalg.norm(vec_minus),
+                                   np.linalg.norm(vec_sum))
+    return angle_u_v_rad
 
 
 def vector_plot(tvects, labels=None, is_vect=True, orig=[0, 0, 0]):
