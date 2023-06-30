@@ -11,7 +11,7 @@ import numpy as np
 import numpy as np
 import plotly.graph_objs as go
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
-from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm
+from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array
 
 config.DISABLE_JIT = False
 
@@ -896,7 +896,7 @@ def point_within_GCR(pt, gcr_cart):
     GCRv0_lonlat = node_xyz_to_lonlat_rad(gcr_cart[0])
     GCRv1_lonlat = node_xyz_to_lonlat_rad(gcr_cart[1])
 
-    # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
+
 
     # Check if the GCR is presented in the multiprecision format
     if np.any(
@@ -905,6 +905,14 @@ def point_within_GCR(pt, gcr_cart):
                     pt),
                 np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
                     gcr_cart))):
+
+        # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
+        angle = _angle_of_2_vectors(gcr_cart[0], gcr_cart[1])
+        if gmpy2.cmp(angle, gmpy2.const_pi()) == 0:
+            raise ValueError(
+                "The input GCR is exactly 180 degree, this GCR can have multiple planes. Consider breaking the GCR "
+                "into two GCRs")
+
 
         # First determine if the pt lies on the plane defined by the gcr
         if gmpy2.cmp(mp_dot(mp_cross(gcr_cart[0], gcr_cart[1]), pt),
@@ -951,6 +959,14 @@ def point_within_GCR(pt, gcr_cart):
             return is_between(GCRv0_lonlat[0], pt_lonlat[0], GCRv1_lonlat[0])
 
     else:
+        # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
+        angle = _angle_of_2_vectors(gcr_cart[0], gcr_cart[1])
+        if np.allclose(angle, np.pi, rtol=0, atol=ERROR_TOLERANCE):
+            raise ValueError(
+                "The input GCR is exactly 180 degree, this GCR can have multiple planes. Consider breaking the GCR "
+                "into two GCRs")
+
+
         # First determine if the pt lies on the plane defined by the gcr
         if not np.allclose(np.dot(np.cross(gcr_cart[0], gcr_cart[1]), pt),
                            0,
@@ -1012,9 +1028,6 @@ def is_between(p: Union[float, gmpy2.mpfr], q: Union[float, gmpy2.mpfr],
     else:
         return p <= q <= r or r <= q <= p
 
-import numpy as np
-import math
-
 def _angle_of_2_vectors(u, v):
     """
     Calculate the angle between two 3D vectors u and v in radians.
@@ -1031,12 +1044,23 @@ def _angle_of_2_vectors(u, v):
     float
         The angle between u and v in radians.
     """
-    v_norm_times_u = np.linalg.norm(v) * u
-    u_norm_times_v = np.linalg.norm(u) * v
-    vec_minus = v_norm_times_u - u_norm_times_v
-    vec_sum = v_norm_times_u + u_norm_times_v
-    angle_u_v_rad = 2 * np.arctan2(np.linalg.norm(vec_minus),
-                                   np.linalg.norm(vec_sum))
+    if is_mpfr_array(u) or is_mpfr_array(v):
+        #TODO: This is a only a sudo implementation. Need to check the GMPY2 has the norm/atan2 functions
+
+        # If the input arrays contain elements of mpfr datatype, use gmpy2 operations
+        v_norm_times_u = gmpy2.norm(v) * u
+        u_norm_times_v = gmpy2.norm(u) * v
+        vec_minus = v_norm_times_u - u_norm_times_v
+        vec_sum = v_norm_times_u + u_norm_times_v
+        angle_u_v_rad = 2 * gmpy2.atan2(gmpy2.norm(vec_minus),
+                                        gmpy2.norm(vec_sum))
+    else:
+        v_norm_times_u = np.linalg.norm(v) * u
+        u_norm_times_v = np.linalg.norm(u) * v
+        vec_minus = v_norm_times_u - u_norm_times_v
+        vec_sum = v_norm_times_u + u_norm_times_v
+        angle_u_v_rad = 2 * np.arctan2(np.linalg.norm(vec_minus),
+                                       np.linalg.norm(vec_sum))
     return angle_u_v_rad
 
 

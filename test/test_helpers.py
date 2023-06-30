@@ -9,11 +9,12 @@ import mpmath
 from unittest import TestCase
 from pathlib import Path
 import time
+import math
 
 import uxarray as ux
 
 from uxarray.helpers import _replace_fill_values, node_lonlat_rad_to_xyz, node_xyz_to_lonlat_rad
-from uxarray.constants import INT_DTYPE, INT_FILL_VALUE
+from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
 from uxarray.multi_precision_helpers import convert_to_multiprecision, set_global_precision, \
     decimal_digits_to_precision_bits
 
@@ -361,6 +362,25 @@ class TestConstants(TestCase):
 class TestIntersectionPoint(TestCase):
 
     def test_pt_within_gcr(self):
+
+        # The GCR that's eexactly 180 degrees will has Value Error raised
+        gcr_180degree_cart = [
+            ux.helpers.node_lonlat_rad_to_xyz([0, 0]),
+            ux.helpers.node_lonlat_rad_to_xyz([np.pi, 0])
+        ]
+        pt_same_lon_in = ux.helpers.node_lonlat_rad_to_xyz([0, 0])
+        with self.assertRaises(ValueError):
+            ux.helpers.point_within_GCR(pt_same_lon_in, gcr_180degree_cart)
+
+        gcr_180degree_cart = [
+            ux.helpers.node_lonlat_rad_to_xyz([0.0, np.pi/2]),
+            ux.helpers.node_lonlat_rad_to_xyz([0.0, -np.pi/2])
+        ]
+
+        pt_same_lon_in = ux.helpers.node_lonlat_rad_to_xyz([0, 0])
+        with self.assertRaises(ValueError):
+            ux.helpers.point_within_GCR(pt_same_lon_in, gcr_180degree_cart)
+
 
         # Test when the point and the GCR all have the same longitude
         gcr_same_lon_cart = [
