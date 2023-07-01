@@ -451,6 +451,24 @@ class TestIntersectionPoint(TestCase):
 
         set_global_precision(64)
 
+        # The GCR that's eexactly 180 degrees will has Value Error raised
+        gcr_180degree_cart = [
+            ux.helpers.node_lonlat_rad_to_xyz([mpfr('0.0'),mpfr('0.0')]),
+            ux.helpers.node_lonlat_rad_to_xyz([gmpy2.const_pi(),mpfr('0.0')])
+        ]
+        pt_same_lon_in = ux.helpers.node_lonlat_rad_to_xyz([mpfr('0.0'),mpfr('0.0')])
+        with self.assertRaises(ValueError):
+            ux.helpers.point_within_GCR(pt_same_lon_in, gcr_180degree_cart)
+
+        gcr_180degree_cart = [
+            ux.helpers.node_lonlat_rad_to_xyz([0.0, np.pi/2]),
+            ux.helpers.node_lonlat_rad_to_xyz([0.0, -np.pi/2])
+        ]
+
+        pt_same_lon_in = ux.helpers.node_lonlat_rad_to_xyz([0, 0])
+        with self.assertRaises(ValueError):
+            ux.helpers.point_within_GCR(pt_same_lon_in, gcr_180degree_cart)
+
         # Test when the point and the GCR all have the same longitude
         gcr_same_lon_cart = [
             ux.helpers.node_lonlat_rad_to_xyz([mpfr('0'),
@@ -542,7 +560,23 @@ class TestIntersectionPoint(TestCase):
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(0)]), ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(10)])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([0.5 * np.pi, 0]), ux.helpers.node_lonlat_rad_to_xyz([-0.5 * np.pi - 0.01, 0])])
         res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
-        pass
+
+    def test_get_GCR_GCR_intersections_perpendicular_mpfr(self):
+        # GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('170.0')), mpfr('0.0')]), ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('170.0')), gmpy2.radians(mpfr('10.0'))])])
+        # GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([mpfr('0.5') * gmpy2.const_pi(), mpfr('0.0')]), ux.helpers.node_lonlat_rad_to_xyz([mpfr('-0.5') * gmpy2.const_pi() - mpfr('0.01'), mpfr('0.0')])])
+        # res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        #
+        # # The result should be [gmpy2.mpfr('-1'), gmpy2.mpfr('-1'), gmpy2.mpfr('-1')]
+        # self.assertTrue(all(gmpy2.cmp(a, b) == 0 for a, b in zip(res_cart, [gmpy2.mpfr('-1'), gmpy2.mpfr('-1'), gmpy2.mpfr('-1')])))
+
+        GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('10.0')), mpfr('-0.1')]), ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('10.0')), gmpy2.radians(mpfr('10.0'))])])
+        GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('359.0')), mpfr('0.0')]), ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('15.0')), mpfr('0.0')])])
+        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_lonlat_rad = ux.helpers.node_xyz_to_lonlat_rad(res_cart)
+        res_lonlat_deg = [gmpy2.degrees(x) for x in res_lonlat_rad]
+        self.assertTrue(all(gmpy2.cmp(a, b) == 0 for a, b in zip(res_lonlat_deg, [gmpy2.mpfr('10.0'), gmpy2.mpfr('0.0')])))
+        set_global_precision()
+
 
 
 

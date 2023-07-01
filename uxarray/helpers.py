@@ -1,17 +1,15 @@
-import numpy as np
 import xarray as xr
 import gmpy2
 from gmpy2 import mpfr, mpz
-import mpmath
 from .get_quadratureDG import get_gauss_quadratureDG, get_tri_quadratureDG
 from numba import njit, config
+import pyfma
 import math
 from typing import Union
 import numpy as np
-import numpy as np
 import plotly.graph_objs as go
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
-from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array
+from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array, precision_bits_to_decimal_digits
 
 config.DISABLE_JIT = False
 
@@ -464,7 +462,7 @@ def grid_center_lat_lon(ds):
     z = np.sum(np.sin(rad_corner_lat), axis=1) / nodes_per_face
 
     center_lon = np.rad2deg(np.arctan2(y, x))
-    center_lat = np.rad2deg(np.arctan2(z, np.sqrt(x**2 + y**2)))
+    center_lat = np.rad2deg(np.arctan2(z, np.sqrt(x ** 2 + y ** 2)))
 
     # Make negative lons positive
     center_lon[center_lon < 0] += 360
@@ -578,6 +576,7 @@ def node_xyz_to_lonlat_rad(node_coord):
 
         return np.array([d_lon_rad, d_lat_rad])
 
+
 def normalize_in_place(node):
     """Helper function to project an arbitrary node in 3D coordinates [x, y, z]
     on the unit sphere. It uses the `np.linalg.norm` internally to calculate
@@ -608,7 +607,7 @@ def normalize_in_place(node):
 
     if np.any(np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(node)):
         # Convert the node to mpmath array
-        norm = gmpy2.sqrt(gmpy2.fsum([gmpy2.square(value) for value in node]))
+        norm = mp_norm(np.asarray(node))
 
         # Divide each element of the node by the norm using gmpy2
         normalized_node = [gmpy2.div(element, norm) for element in node]
@@ -620,7 +619,6 @@ def normalize_in_place(node):
             return normalized_node
     else:
         return node / np.linalg.norm(node, ord=2)
-
 
 
 def _replace_fill_values(grid_var, original_fill, new_fill, new_dtype=None):
@@ -722,7 +720,7 @@ def close_face_nodes(Mesh2_face_nodes, nMesh2_face, nMaxMesh2_face_nodes):
 
     # 2d to 1d index for np.put()
     first_fv_idx_1d = first_fv_idx_2d + (
-        (nMaxMesh2_face_nodes + 1) * np.arange(0, nMesh2_face))
+            (nMaxMesh2_face_nodes + 1) * np.arange(0, nMesh2_face))
 
     # column of first node values
     first_node_value = Mesh2_face_nodes[:, 0].copy()
@@ -755,12 +753,8 @@ def get_GCR_GCR_intersections(gcr1_cart, gcr2_cart):
             "The two GCRs must be in the cartesian[x, y, z] format")
     w0, w1 = gcr1_cart
     v0, v1 = gcr2_cart
-    v0_latlon = node_xyz_to_lonlat_rad(v0)
-    v1_latlon = node_xyz_to_lonlat_rad(v1)
     # Check if the two GCRs are in the mpfr format (contains type of mpfr)
-    if np.any(
-            np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
-                np.hstack((gcr1_cart, gcr2_cart)))):
+    if is_mpfr_array(gcr1_cart) or is_mpfr_array(gcr2_cart):
         # The two GCRs are in the mpfr format
         w0w1_norm = mp_cross(w0, w1)
         v0v1_norm = mp_cross(v0, v1)
@@ -770,8 +764,12 @@ def get_GCR_GCR_intersections(gcr1_cart, gcr2_cart):
         if all(gmpy2.cmp(arr_val, gmpy2.mpfr('0')) == 0 for arr_val in cross_norms):
             return np.array([gmpy2.mpfr('0'), gmpy2.mpfr('0'), gmpy2.mpfr('0')])
 
-        x1 = mp_cross(w0w1_norm, cross_norms)
+        x1 = cross_norms
         x2 = -x1
+
+        x1_latlon = node_xyz_to_lonlat_rad(x1)
+        x2_latlon = node_xyz_to_lonlat_rad(x2)
+
 
         # Find out whether X1 or X2 is within the interval [w0, w1]
         if point_within_GCR(x1, [w0, w1]) and point_within_GCR(x1, [v0, v1]):
@@ -779,33 +777,22 @@ def get_GCR_GCR_intersections(gcr1_cart, gcr2_cart):
         elif point_within_GCR(x2, [w0, w1]) and point_within_GCR(x2, [v0, v1]):
             return x2
         elif all(gmpy2.cmp(arr_val, gmpy2.mpfr('0')) == 0 for arr_val in x1):
-            return  [gmpy2.mpfr('0'), gmpy2.mpfr('0'), gmpy2.mpfr('0')]  # two vectors are parallel to each other
+            return [gmpy2.mpfr('0'), gmpy2.mpfr('0'), gmpy2.mpfr('0')]  # two vectors are parallel to each other
         else:
-            return  [gmpy2.mpfr('-1'), gmpy2.mpfr('-1'), gmpy2.mpfr('-1')]  # Intersection out of the interval or
+            return [gmpy2.mpfr('-1'), gmpy2.mpfr('-1'), gmpy2.mpfr('-1')]  # Intersection out of the interval or
     else:
         w0_latlon = node_xyz_to_lonlat_rad(w0)
         w1_latlon = node_xyz_to_lonlat_rad(w1)
-        w0w1_norm = np.cross(w0, w1)
-        w_orthogonal_basis = gram_schmidt(np.array([w0w1_norm, w0, w1]))
-        w0w1norm_orthogonal = w_orthogonal_basis[0]
+        w0w1_norm = fma_cross(w0, w1)
 
-        v0v1_norm = np.cross(v0, v1)
-        v_orthogonal_basis = gram_schmidt(np.array([v0v1_norm, v0, v1]))
-        v0v1norm_orthogonal = v_orthogonal_basis[0]
+        v0v1_norm = fma_cross(v0, v1)
 
-        # Clean up the results to avoid -0.0 notation
-        np.where(np.signbit(w0w1norm_orthogonal), 0, w0w1norm_orthogonal)
-        np.where(np.signbit(v0v1norm_orthogonal), 0, v0v1norm_orthogonal)
+        cross_norms = fma_cross(w0w1_norm, v0v1_norm)
 
-
-        cross_norms = np.cross(w0w1norm_orthogonal, v0v1norm_orthogonal)
-        cross_orthogonal_basis = gram_schmidt(np.array([cross_norms, w0w1norm_orthogonal, v0v1norm_orthogonal]))
-        crossnorms_orthogonal= cross_orthogonal_basis[0]
-
-        if np.allclose(crossnorms_orthogonal, 0, atol=ERROR_TOLERANCE):
+        if np.allclose(cross_norms, 0, atol=ERROR_TOLERANCE):
             return np.array([0, 0, 0])
 
-        x1 = crossnorms_orthogonal
+        x1 = cross_norms
         x2 = -x1
 
         x1_latlon = node_xyz_to_lonlat_rad(x1)
@@ -820,6 +807,7 @@ def get_GCR_GCR_intersections(gcr1_cart, gcr2_cart):
             return np.array([0, 0, 0])  # two vectors are parallel to each other
         else:
             return np.array([-1, -1, -1])  # Intersection out of the interval or
+
 
 def gram_schmidt(vectors):
     """
@@ -861,8 +849,7 @@ def gram_schmidt(vectors):
         if np.any(np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(v)):
             for b in basis:
                 v -= mp_dot(v, b) * b
-            if np.linalg.norm(v) > ERROR_TOLERANCE:
-                basis.append(v / mp_norm(v))
+            basis.append(v / mp_norm(v))
         else:
             norm_v = np.linalg.norm(v)
             if norm_v > ERROR_TOLERANCE:
@@ -871,7 +858,7 @@ def gram_schmidt(vectors):
                 basis.append(v / norm_v)
             else:
                 return np.array([0, 0, 0])
-        return np.array(basis)
+    return np.array(basis)
 
 
 def point_within_GCR(pt, gcr_cart):
@@ -896,15 +883,8 @@ def point_within_GCR(pt, gcr_cart):
     GCRv0_lonlat = node_xyz_to_lonlat_rad(gcr_cart[0])
     GCRv1_lonlat = node_xyz_to_lonlat_rad(gcr_cart[1])
 
-
-
     # Check if the GCR is presented in the multiprecision format
-    if np.any(
-            np.logical_or(
-                np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
-                    pt),
-                np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
-                    gcr_cart))):
+    if is_mpfr_array(GCRv0_lonlat) or is_mpfr_array(GCRv1_lonlat) or is_mpfr_array(pt_lonlat):
 
         # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
         angle = _angle_of_2_vectors(gcr_cart[0], gcr_cart[1])
@@ -913,10 +893,13 @@ def point_within_GCR(pt, gcr_cart):
                 "The input GCR is exactly 180 degree, this GCR can have multiple planes. Consider breaking the GCR "
                 "into two GCRs")
 
-
         # First determine if the pt lies on the plane defined by the gcr
+        # TODO: Decide if we want to use the tolerance here
+        current_tolerance_digits = precision_bits_to_decimal_digits(gmpy2.get_context().precision)
+        tolerance = 10 ** (-current_tolerance_digits)
+
         if gmpy2.cmp(mp_dot(mp_cross(gcr_cart[0], gcr_cart[1]), pt),
-                     mpfr('0')) != 0:
+                     tolerance) > 0:
             return False
 
         # Special case:
@@ -937,9 +920,9 @@ def point_within_GCR(pt, gcr_cart):
             if (gmpy2.cmp(GCRv0_lonlat[0], gmpy2.const_pi()) <= 0 and gmpy2.cmp(
                     GCRv0_lonlat[0],
                     mpfr('0') >= 0)) and (gmpy2.cmp(
-                        GCRv1_lonlat[0], gmpy2.const_pi()) >= 0 >= gmpy2.cmp(
-                            GCRv1_lonlat[0],
-                            gmpy2.mpfr('2') * gmpy2.const_pi())):
+                GCRv1_lonlat[0], gmpy2.const_pi()) >= 0 >= gmpy2.cmp(
+                GCRv1_lonlat[0],
+                gmpy2.mpfr('2') * gmpy2.const_pi())):
                 return is_between(gmpy2.const_pi(), pt_lonlat[0], mpfr('2') * gmpy2.const_pi()) or \
                     is_between(mpfr('0'), pt_lonlat[0], gmpy2.const_pi())
 
@@ -948,11 +931,11 @@ def point_within_GCR(pt, gcr_cart):
             elif (gmpy2.cmp(GCRv0_lonlat[0], gmpy2.const_pi()) >= 0 and
                   gmpy2.cmp(GCRv0_lonlat[0],
                             mpfr('2') * gmpy2.const_pi() <= 0)
-                 ) and (gmpy2.cmp(GCRv1_lonlat[0], gmpy2.const_pi()) <= 0 <= gmpy2.cmp(GCRv1_lonlat[0], mpfr('0'))):
+            ) and (gmpy2.cmp(GCRv1_lonlat[0], gmpy2.const_pi()) <= 0 <= gmpy2.cmp(GCRv1_lonlat[0], mpfr('0'))):
                 return is_between(
                     GCRv0_lonlat[0], pt_lonlat[0],
                     gmpy2.mpfr('2') * gmpy2.const_pi()) or is_between(
-                        gmpy2.mpfr('0'), pt_lonlat[0], GCRv1_lonlat[0])
+                    gmpy2.mpfr('0'), pt_lonlat[0], GCRv1_lonlat[0])
 
         # The non-anti-meridian case.
         else:
@@ -966,9 +949,8 @@ def point_within_GCR(pt, gcr_cart):
                 "The input GCR is exactly 180 degree, this GCR can have multiple planes. Consider breaking the GCR "
                 "into two GCRs")
 
-
         # First determine if the pt lies on the plane defined by the gcr
-        if not np.allclose(np.dot(np.cross(gcr_cart[0], gcr_cart[1]), pt),
+        if not np.allclose(fma_dot(fma_cross(gcr_cart[0], gcr_cart[1]), pt),
                            0,
                            rtol=0,
                            atol=ERROR_TOLERANCE):
@@ -990,14 +972,14 @@ def point_within_GCR(pt, gcr_cart):
             if GCRv0_lonlat[0] <= np.pi <= GCRv1_lonlat[0]:
                 return is_between(0, pt_lonlat[0],
                                   GCRv0_lonlat[0]) or is_between(
-                                      GCRv1_lonlat[0], pt_lonlat[0], 2 * np.pi)
+                    GCRv1_lonlat[0], pt_lonlat[0], 2 * np.pi)
 
             # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
             # Case 2: The anti-meridian case where 180 -->x0 --> 0 lon --> x1 --> 180 that doesn't require redirection.
             elif 2 * np.pi > GCRv0_lonlat[0] > np.pi > GCRv1_lonlat[0] > 0:
                 return is_between(GCRv0_lonlat[0], pt_lonlat[0],
                                   2 * np.pi) or is_between(
-                                      0, pt_lonlat[0], GCRv1_lonlat[0])
+                    0, pt_lonlat[0], GCRv1_lonlat[0])
 
         # The non-anti-meridian case.
         else:
@@ -1028,6 +1010,7 @@ def is_between(p: Union[float, gmpy2.mpfr], q: Union[float, gmpy2.mpfr],
     else:
         return p <= q <= r or r <= q <= p
 
+
 def _angle_of_2_vectors(u, v):
     """
     Calculate the angle between two 3D vectors u and v in radians.
@@ -1045,15 +1028,13 @@ def _angle_of_2_vectors(u, v):
         The angle between u and v in radians.
     """
     if is_mpfr_array(u) or is_mpfr_array(v):
-        #TODO: This is a only a sudo implementation. Need to check the GMPY2 has the norm/atan2 functions
-
         # If the input arrays contain elements of mpfr datatype, use gmpy2 operations
-        v_norm_times_u = gmpy2.norm(v) * u
-        u_norm_times_v = gmpy2.norm(u) * v
+        v_norm_times_u = mp_norm(v) * u
+        u_norm_times_v = mp_norm(u) * v
         vec_minus = v_norm_times_u - u_norm_times_v
         vec_sum = v_norm_times_u + u_norm_times_v
-        angle_u_v_rad = 2 * gmpy2.atan2(gmpy2.norm(vec_minus),
-                                        gmpy2.norm(vec_sum))
+        angle_u_v_rad = 2 * gmpy2.atan2(mp_norm(vec_minus),
+                                        mp_norm(vec_sum))
     else:
         v_norm_times_u = np.linalg.norm(v) * u
         u_norm_times_v = np.linalg.norm(u) * v
@@ -1103,5 +1084,93 @@ def vector_plot(tvects, labels=None, is_vect=True, orig=[0, 0, 0]):
     fig.show()
 
 
+def _fmms(a, b, c, d):
+    """
+    Calculate the difference of products using the FMA (fused multiply-add) operation. (a*b)-(c*d)
 
+    Parameters:
+    a (float): The first value of the first product.
+    b (float): The second value of the first product.
+    c (float): The first value of the second product.
+    d (float): The second value of the second product.
 
+    Returns:
+    float: The difference of the two products.
+
+    Example:
+    >>> _fmms(3.0,2.0,1.0,1.0)
+    5.0
+    """
+    cd = c * d
+    err = pyfma.fma(-c, d, cd)
+    dop = pyfma.fma(a, b, -cd)
+    return dop + err
+
+def fma_cross(v1, v2):
+    """
+    Calculate the cross product of two 3D vectors utilizing the fused multiply-add operation.
+
+    Parameters:
+    v1 (np.array): The first vector of size 3.
+    v2 (np.array): The second vector of size 3.
+
+    Returns:
+    np.array: The cross product vector of size 3.
+
+    Example:
+    >>> v1 = np.array([1.0, 2.0, 3.0])
+    >>> v2 = np.array([4.0, 5.0, 6.0])
+    >>> fma_cross(v1, v2)
+    array([-3.0, 6.0, -3.0])
+    """
+    x = _fmms(v1[1], v2[2], v1[2], v2[1])
+    y = _fmms(v1[2], v2[0], v1[0], v2[2])
+    z = _fmms(v1[0], v2[1], v1[1], v2[0])
+    return np.array([x, y, z])
+
+def _fmma(a, b, c, d):
+    """
+    Compute the sum of products with reduced rounding errors using FMA. (a * b) + (c * d)
+
+    This function calculates the sum of products by utilizing the fused multiply-add (FMA) operation,
+    which helps to minimize rounding errors in floating-point arithmetic.
+
+    Parameters:
+        a (float): The first input value.
+        b (float): The second input value.
+        c (float): The third input value.
+        d (float): The fourth input value.
+
+    Returns:
+        float: The sum of products with reduced rounding errors.
+
+    Note:
+        The FMA operation is used to compute accurate products and minimize the accumulation of rounding errors,
+        resulting in improved numerical stability and reduced catastrophic cancellation.
+
+    """
+    ab = a * b
+    cd = c * d
+    err_ab = pyfma.fma(a, b, -ab)
+    err_cd = pyfma.fma(c, d, -cd)
+    sop = pyfma.fma(a, b, cd)
+    return sop + err_ab + err_cd
+
+def fma_dot(v1, v2):
+    """Compute the dot product of two vectors in multiprecision. Already utilized the FMA operation
+    Parameters
+    ----------
+    v1 : list/np.ndarray of np.float64
+        The first vector
+    v2 : list/np.ndarray of np.float64
+        The second vector
+
+    Returns
+    -------
+    dot_product : mpfr
+        The dot product of the two vectors
+    """
+    # Calculate the dot product of two vectors
+    v1xv2x_v1yv2y = _fmma(v1[0], v2[0], v1[1], v2[1])
+    dot_product = pyfma.fma(v1[2], v2[2], v1xv2x_v1yv2y)
+    return dot_product

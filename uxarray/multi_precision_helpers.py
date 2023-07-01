@@ -224,7 +224,7 @@ def precision_bits_to_decimal_digits(precision):
 
 
 def mp_cross(v1, v2):
-    """Compute the cross product of two vectors in multiprecision.
+    """Compute the cross product of two vectors in multiprecision. Already utilized the FMA operation
     Parameters
     ----------
     v1 : list/np.ndarray
@@ -237,14 +237,14 @@ def mp_cross(v1, v2):
     cross_product : np.ndarray
         The cross product of the two vectors"""
     # Calculate the cross product of two vectors
-    x = v1[1] * v2[2] - v1[2] * v2[1]
-    y = v1[2] * v2[0] - v1[0] * v2[2]
-    z = v1[0] * v2[1] - v1[1] * v2[0]
+    x = gmpy2.fmms(v1[1], v2[2], v1[2], v2[1])
+    y = gmpy2.fmms(v1[2], v2[0], v1[0], v2[2])
+    z = gmpy2.fmms(v1[0], v2[1], v1[1], v2[0])
     return np.array([x, y, z])
 
 
 def mp_dot(v1, v2):
-    """Compute the dot product of two vectors in multiprecision.
+    """Compute the dot product of two vectors in multiprecision. Already utilized the FMA operation
     Parameters
     ----------
     v1 : list/np.ndarray
@@ -255,10 +255,12 @@ def mp_dot(v1, v2):
     Returns
     -------
     dot_product : mpfr
-    The dot product of the two vectors
+        The dot product of the two vectors
     """
     # Calculate the dot product of two vectors
-    return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
+    v1xv2x_v1yv2y = gmpy2.fmma(v1[0], v2[0], v1[1], v2[1])
+    dot_product = gmpy2.fma(v1[2], v2[2], v1xv2x_v1yv2y)
+    return dot_product
 
 def mp_norm(vector):
     """Compute the norm of a vector in multiprecision.
@@ -272,8 +274,12 @@ def mp_norm(vector):
     norm : mpfr
         The norm of the vector
     """
-    norm_squared = gmpy2.fsum(mp_dot(v, v) for v in vector)
-    return gmpy2.sqrt(norm_squared)
+    if vector.ndim == 1:
+        # Handle 1D array case
+        return gmpy2.sqrt(mp_dot(vector, vector))
+    else:
+        norm_squared = gmpy2.fsum(mp_dot(v, v) for v in vector)
+        return gmpy2.sqrt(norm_squared)
 
 def is_mpfr_array(arr):
     """
