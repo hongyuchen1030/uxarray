@@ -767,10 +767,6 @@ def get_GCR_GCR_intersections(gcr1_cart, gcr2_cart):
         x1 = cross_norms
         x2 = -x1
 
-        x1_latlon = node_xyz_to_lonlat_rad(x1)
-        x2_latlon = node_xyz_to_lonlat_rad(x2)
-
-
         # Find out whether X1 or X2 is within the interval [w0, w1]
         if point_within_GCR(x1, [w0, w1]) and point_within_GCR(x1, [v0, v1]):
             return x1
@@ -781,14 +777,17 @@ def get_GCR_GCR_intersections(gcr1_cart, gcr2_cart):
         else:
             return [gmpy2.mpfr('-1'), gmpy2.mpfr('-1'), gmpy2.mpfr('-1')]  # Intersection out of the interval or
     else:
-        w0_latlon = node_xyz_to_lonlat_rad(w0)
-        w1_latlon = node_xyz_to_lonlat_rad(w1)
         w0w1_norm = fma_cross(w0, w1)
 
         v0v1_norm = fma_cross(v0, v1)
 
+
         cross_norms = fma_cross(w0w1_norm, v0v1_norm)
 
+        # Plot the vectors
+        vector_plot([w0w1_norm, v0v1_norm, cross_norms])
+
+        vector_plot(w0, w1, v0, v1, cross_norms)
         if np.allclose(cross_norms, 0, atol=ERROR_TOLERANCE):
             return np.array([0, 0, 0])
 
