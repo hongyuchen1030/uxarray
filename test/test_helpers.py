@@ -12,8 +12,8 @@ import time
 import math
 
 import uxarray as ux
-
-from uxarray.helpers import _replace_fill_values, node_lonlat_rad_to_xyz, node_xyz_to_lonlat_rad
+from uxarray.cross_sections import get_GCA_GCA_intersections
+from uxarray.helpers import _replace_fill_values, node_lonlat_rad_to_xyz
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
 from uxarray.multi_precision_helpers import convert_to_multiprecision, set_global_precision, \
     decimal_digits_to_precision_bits
@@ -545,7 +545,7 @@ class TestIntersectionPoint(TestCase):
     def test_get_GCR_GCR_intersections_antimeridian(self):
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(89.99)]), ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(10)])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(70), 0]), ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(179), 0])])
-        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_cart = get_GCA_GCA_intersections(GCR1_cart, GCR2_cart)
 
         # res_cart should be [-1, -1, -1] since these two GCRs are not intersecting
         self.assertTrue(np.array_equal(res_cart, np.array([-1, -1, -1])))
@@ -553,7 +553,7 @@ class TestIntersectionPoint(TestCase):
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(89)]), ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(-10)])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(70), 0]), ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(175), 0])])
 
-        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_cart = get_GCA_GCA_intersections(GCR1_cart, GCR2_cart)
         res_lonlat_rad = ux.helpers.node_xyz_to_lonlat_rad(res_cart)
 
         # res_cart should be [170, 0]
@@ -562,27 +562,28 @@ class TestIntersectionPoint(TestCase):
     def test_get_GCR_GCR_intersections_parallel(self):
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([0.3 * np.pi, 0]), ux.helpers.node_lonlat_rad_to_xyz([0.5 * np.pi, 0])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([0.5 * np.pi, 0]), ux.helpers.node_lonlat_rad_to_xyz([-0.5 * np.pi - 0.01, 0])])
-        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_cart = get_GCA_GCA_intersections(GCR1_cart, GCR2_cart)
         self.assertTrue(np.allclose(res_cart, 0))
 
     def test_get_GCR_GCR_intersections_perpendicular(self):
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(0)]), ux.helpers.node_lonlat_rad_to_xyz([np.deg2rad(170), np.deg2rad(10)])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([0.5 * np.pi, 0]), ux.helpers.node_lonlat_rad_to_xyz([-0.5 * np.pi - 0.01, 0])])
-        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_cart = get_GCA_GCA_intersections(GCR1_cart, GCR2_cart)
         res_lonlat_rad = ux.helpers.node_xyz_to_lonlat_rad(res_cart)
         self.assertTrue(np.allclose(res_lonlat_rad, np.array([np.deg2rad(170), np.deg2rad(0)])))
 
     def test_get_GCR_GCR_intersections_perpendicular_mpfr(self):
+        set_global_precision(64)
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('170.0')), mpfr('0.0')]), ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('170.0')), gmpy2.radians(mpfr('10.0'))])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([mpfr('0.5') * gmpy2.const_pi(), mpfr('0.0')]), ux.helpers.node_lonlat_rad_to_xyz([mpfr('-0.5') * gmpy2.const_pi() - mpfr('0.01'), mpfr('0.0')])])
-        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_cart = get_GCA_GCA_intersections(GCR1_cart, GCR2_cart)
         res_lonlat_rad = ux.helpers.node_xyz_to_lonlat_rad(res_cart)
 
         self.assertTrue(all(gmpy2.cmp(a, b) == 0 for a, b in zip(res_lonlat_rad, [gmpy2.radians(170), gmpy2.radians(0)])))
 
         GCR1_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('10.0')), mpfr('-0.1')]), ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('10.0')), gmpy2.radians(mpfr('10.0'))])])
         GCR2_cart = np.array([ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('359.0')), mpfr('0.0')]), ux.helpers.node_lonlat_rad_to_xyz([gmpy2.radians(mpfr('15.0')), mpfr('0.0')])])
-        res_cart = ux.helpers.get_GCR_GCR_intersections(GCR1_cart, GCR2_cart)
+        res_cart = get_GCA_GCA_intersections(GCR1_cart, GCR2_cart)
         res_lonlat_rad = ux.helpers.node_xyz_to_lonlat_rad(res_cart)
         res_lonlat_deg = [gmpy2.degrees(x) for x in res_lonlat_rad]
         self.assertTrue(all(gmpy2.cmp(a, b) == 0 for a, b in zip(res_lonlat_deg, [gmpy2.mpfr('10.0'), gmpy2.mpfr('0.0')])))

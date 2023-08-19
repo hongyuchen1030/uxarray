@@ -3,7 +3,7 @@ import gmpy2
 import numpy as np
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
 from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array, precision_bits_to_decimal_digits
-from uxarray.helpers import fma_cross, gram_schmidt, node_xyz_to_lonlat_rad, point_within_GCR
+from uxarray.helpers import fma_cross, gram_schmidt, node_xyz_to_lonlat_rad, point_within_GCR, vector_plot
 
 
 def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
@@ -61,36 +61,36 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
     else:
         w0w1_norm = np.cross(w0, w1)
         # vector_plot([w0, w1, w0w1_norm], labels=['w0', 'w1', 'w0w1norm'])
-        orthogonal_basis = gram_schmidt([w0w1_norm.copy(), w0.copy(), w1.copy()])
-        w0w1norm_orthogonal = orthogonal_basis[0]
+        # orthogonal_basis = gram_schmidt([w0w1_norm.copy(), w0.copy(), w1.copy()])
+        # w0w1norm_orthogonal = orthogonal_basis[0]
         # vector_plot([w0, w1, w0w1norm_orthogonal], labels=['w0', 'w1', 'w0w1norm'])
 
         # Check if w0w1norm_orthogonal perpendicular to w0 and w1
-        if not np.allclose(np.dot(w0w1norm_orthogonal, w0), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(w0w1norm_orthogonal, w1), 0, atol=ERROR_TOLERANCE):
-            raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
-                             "turn on the multi-precision mode and rerun.")
+        # if not np.allclose(np.dot(w0w1norm_orthogonal, w0), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(w0w1norm_orthogonal, w1), 0, atol=ERROR_TOLERANCE):
+        #     raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
+        #                      "turn on the multi-precision mode and rerun.")
 
 
-        v0v1_norm = fma_cross(v0, v1)
-        orthogonal_basis = gram_schmidt([v0v1_norm.copy(), v0.copy(), v1.copy()])
-        v0v1norm_orthogonal = orthogonal_basis[0]
+        v0v1_norm = np.cross(v0, v1)
+        # orthogonal_basis = gram_schmidt([v0v1_norm.copy(), v0.copy(), v1.copy()])
+        # v0v1norm_orthogonal = orthogonal_basis[0]
         # vector_plot([v0, v1, v0v1norm_orthogonal], labels=['v0', 'v1', 'v0v1norm'])
 
         # Check if v0v1norm_orthogonal perpendicular to w0 and w1
-        if not np.allclose(np.dot(v0v1norm_orthogonal, v0), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(v0v1norm_orthogonal, v1), 0, atol=ERROR_TOLERANCE):
-            raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
-                             "turn on the multi-precision mode and rerun.")
+        # if not np.allclose(np.dot(v0v1norm_orthogonal, v0), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(v0v1norm_orthogonal, v1), 0, atol=ERROR_TOLERANCE):
+        #     raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
+        #                      "turn on the multi-precision mode and rerun.")
 
         cross_norms = fma_cross(w0w1_norm, v0v1_norm)
-        orthogonal_basis = gram_schmidt([cross_norms.copy(), w0w1_norm.copy(), v0v1_norm.copy()])
-        cross_norms_orthogonal = orthogonal_basis[0]
+        # orthogonal_basis = gram_schmidt([cross_norms.copy(), w0w1_norm.copy(), v0v1_norm.copy()])
+        # cross_norms_orthogonal = orthogonal_basis[0]
 
         # Check if cross_norms_orthogonal perpendicular to v0v1norm_orthogonal and w0w1norm_orthogonal
-        if not np.allclose(np.dot(cross_norms_orthogonal, v0v1norm_orthogonal), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(cross_norms_orthogonal, w0w1norm_orthogonal), 0, atol=ERROR_TOLERANCE):
-            raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
-                             "turn on the multi-precision mode and rerun.")
+        # if not np.allclose(np.dot(cross_norms_orthogonal, v0v1norm_orthogonal), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(cross_norms_orthogonal, w0w1norm_orthogonal), 0, atol=ERROR_TOLERANCE):
+        #     raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
+        #                      "turn on the multi-precision mode and rerun.")
 
-        cross_norms = cross_norms_orthogonal
+        # cross_norms = cross_norms_orthogonal
         # vector_plot([w0w1norm_orthogonal, v0v1norm_orthogonal, cross_norms_orthogonal],
         #             labels=["w0w1_norm", "v0v1_norm", "cross_norms_grant_schmit"])
 

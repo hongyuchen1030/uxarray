@@ -13,7 +13,8 @@ from ._shapefile import _read_shpfile
 from ._scrip import _read_scrip, _encode_scrip
 from ._mpas import _read_mpas
 from .helpers import get_all_face_area_from_coords, parse_grid_type, node_xyz_to_lonlat_rad, node_lonlat_rad_to_xyz, \
-    close_face_nodes, get_GCR_GCR_intersections
+    close_face_nodes
+from .cross_sections import get_GCA_GCA_intersections
 from .constants import INT_DTYPE, INT_FILL_VALUE, FLOAT_PRECISION_BITS, INT_FILL_VALUE_MPZ, ERROR_TOLERANCE
 from .multi_precision_helpers import convert_to_multiprecision, unique_coordinates_multiprecision, \
     precision_bits_to_decimal_digits, decimal_digits_to_precision_bits
@@ -1023,7 +1024,7 @@ class Grid:
                 self.ds["Mesh2_node_y"].values[edge[1]]
             ]
 
-            res = get_GCR_GCR_intersections(np.array([w1, w2]), np.array([v1, v2]))
+            res = get_GCA_GCA_intersections(np.array([w1, w2]), np.array([v1, v2]))
 
             # Check if two vectors are intersected within range and not parallel
             if not np.array_equal(res, np.array([0, 0, 0])) and not np.array_equal(res, np.array([-1, -1, -1])):
