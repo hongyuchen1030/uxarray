@@ -3,7 +3,7 @@ import gmpy2
 import numpy as np
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
 from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array, precision_bits_to_decimal_digits
-from uxarray.helpers import fma_cross, gram_schmidt, node_xyz_to_lonlat_rad, point_within_GCR, vector_plot
+from uxarray.helpers import fma_cross, gram_schmidt, node_xyz_to_lonlat_rad, point_within_GCR, normalize_in_place
 
 
 def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
@@ -98,7 +98,7 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
         if np.allclose(cross_norms, 0, atol=ERROR_TOLERANCE):
             return np.array([0, 0, 0])
 
-        x1 = cross_norms
+        x1 = normalize_in_place(cross_norms)
         x2 = -x1
 
         if point_within_GCR(x1, [w0, w1]) and point_within_GCR(x1, [v0, v1]):
