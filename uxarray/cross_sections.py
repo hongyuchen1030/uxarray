@@ -47,8 +47,6 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
         x1_latlon = node_xyz_to_lonlat_rad(x1)
         x2_latlon = node_xyz_to_lonlat_rad(x2)
 
-
-
         # Find out whether X1 or X2 is within the interval [w0, w1]
         if point_within_GCR(x1, [w0, w1]) and point_within_GCR(x1, [v0, v1]):
             return x1
@@ -60,45 +58,40 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
             return [gmpy2.mpfr('-1'), gmpy2.mpfr('-1'), gmpy2.mpfr('-1')]  # Intersection out of the interval or
     else:
         w0w1_norm = np.cross(w0, w1)
-        # vector_plot([w0, w1, w0w1_norm], labels=['w0', 'w1', 'w0w1norm'])
-        # orthogonal_basis = gram_schmidt([w0w1_norm.copy(), w0.copy(), w1.copy()])
-        # w0w1norm_orthogonal = orthogonal_basis[0]
-        # vector_plot([w0, w1, w0w1norm_orthogonal], labels=['w0', 'w1', 'w0w1norm'])
-
-        # Check if w0w1norm_orthogonal perpendicular to w0 and w1
-        # if not np.allclose(np.dot(w0w1norm_orthogonal, w0), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(w0w1norm_orthogonal, w1), 0, atol=ERROR_TOLERANCE):
-        #     raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
-        #                      "turn on the multi-precision mode and rerun.")
-
 
         v0v1_norm = np.cross(v0, v1)
-        # orthogonal_basis = gram_schmidt([v0v1_norm.copy(), v0.copy(), v1.copy()])
-        # v0v1norm_orthogonal = orthogonal_basis[0]
-        # vector_plot([v0, v1, v0v1norm_orthogonal], labels=['v0', 'v1', 'v0v1norm'])
 
-        # Check if v0v1norm_orthogonal perpendicular to w0 and w1
-        # if not np.allclose(np.dot(v0v1norm_orthogonal, v0), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(v0v1norm_orthogonal, v1), 0, atol=ERROR_TOLERANCE):
-        #     raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
-        #                      "turn on the multi-precision mode and rerun.")
+        cross_norms = np.cross(w0w1_norm, v0v1_norm)
 
-        cross_norms = fma_cross(w0w1_norm, v0v1_norm)
-        # orthogonal_basis = gram_schmidt([cross_norms.copy(), w0w1_norm.copy(), v0v1_norm.copy()])
-        # cross_norms_orthogonal = orthogonal_basis[0]
+        # Then check if the cross_norms's L2 norm is larger than 1.0 or not
+        if np.linalg.norm(cross_norms)- 1.0 == ERROR_TOLERANCE:
+            pass
+        elif np.linalg.norm(cross_norms) - 1.0 < 1.0:
+            # Make sure the cross_norms's L2 norm is larger than 1.0
+            cross_norms = cross_norms * 10
 
-        # Check if cross_norms_orthogonal perpendicular to v0v1norm_orthogonal and w0w1norm_orthogonal
-        # if not np.allclose(np.dot(cross_norms_orthogonal, v0v1norm_orthogonal), 0, atol=ERROR_TOLERANCE) and np.allclose(np.dot(cross_norms_orthogonal, w0w1norm_orthogonal), 0, atol=ERROR_TOLERANCE):
-        #     raise ValueError("The current input data cannot be computed using the floating point arithmetic. Please "
-        #                      "turn on the multi-precision mode and rerun.")
-
-        # cross_norms = cross_norms_orthogonal
-        # vector_plot([w0w1norm_orthogonal, v0v1norm_orthogonal, cross_norms_orthogonal],
-        #             labels=["w0w1_norm", "v0v1_norm", "cross_norms_grant_schmit"])
-
-        # vector_plot(w0, w1, v0, v1, cross_norms)
         if np.allclose(cross_norms, 0, atol=ERROR_TOLERANCE):
             return np.array([0, 0, 0])
 
-        x1 = normalize_in_place(cross_norms)
+        # Now use the bisection root finding method to find the intersection point on the sphere
+        max_point = cross_norms
+        min_point = np.array([0, 0, 0])
+        mid_point = (max_point + min_point) / 2
+        max_iter = 1000
+        iter_count = 0
+        while np.abs(np.linalg.norm(mid_point) - 1.0) > ERROR_TOLERANCE and iter_count < max_iter:
+            if np.linalg.norm(max_point - min_point) < ERROR_TOLERANCE:
+                break
+            mid_point = (max_point + min_point) / 2
+            if np.linalg.norm(mid_point) - 1.0 > ERROR_TOLERANCE:
+                max_point = mid_point
+            elif np.linalg.norm(mid_point) - 1.0 < ERROR_TOLERANCE:
+                min_point = mid_point
+            else:
+                break
+            iter_count += 1
+
+        x1 = mid_point
         x2 = -x1
 
         if point_within_GCR(x1, [w0, w1]) and point_within_GCR(x1, [v0, v1]):
