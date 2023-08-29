@@ -63,15 +63,28 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
 
         cross_norms = np.cross(w0w1_norm, v0v1_norm)
 
-        # Then check if the cross_norms's L2 norm is larger than 1.0 or not
-        if np.linalg.norm(cross_norms)- 1.0 == ERROR_TOLERANCE:
-            pass
-        elif np.linalg.norm(cross_norms) - 1.0 < 1.0:
-            # Make sure the cross_norms's L2 norm is larger than 1.0
-            cross_norms = cross_norms * 10
-
         if np.allclose(cross_norms, 0, atol=ERROR_TOLERANCE):
             return np.array([0, 0, 0])
+
+        # Then check if the cross_norms's L2 norm is larger than 1.0 or not
+        if np.abs(np.linalg.norm(cross_norms)- 1.0) == ERROR_TOLERANCE:
+            pass
+        elif np.abs(np.linalg.norm(cross_norms)) < 1.0:
+            # Make sure the cross_norms's L2 norm is larger than 1.0
+            lower_bound = np.linalg.norm(cross_norms)
+            upper_bound = 1.50
+            while np.abs(np.linalg.norm(cross_norms)) < 1.0:
+                scale_factor = (lower_bound + upper_bound) / 2
+                scaled_cross_norms = cross_norms * (scale_factor / np.linalg.norm(cross_norms))
+
+                if np.abs(np.linalg.norm(scaled_cross_norms) - 1.0) < ERROR_TOLERANCE:
+                    break
+                else:
+                    cross_norms = scaled_cross_norms  # Update cross_norms
+                    if np.linalg.norm(cross_norms) < 1.0:
+                        lower_bound = scale_factor
+                    else:
+                        upper_bound = scale_factor
 
         # Now use the bisection root finding method to find the intersection point on the sphere
         max_point = cross_norms
@@ -80,7 +93,7 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
         max_iter = 1000
         iter_count = 0
         while np.abs(np.linalg.norm(mid_point) - 1.0) > ERROR_TOLERANCE and iter_count < max_iter:
-            if np.linalg.norm(max_point - min_point) < ERROR_TOLERANCE:
+            if np.abs(np.linalg.norm(max_point - min_point)) < ERROR_TOLERANCE:
                 break
             mid_point = (max_point + min_point) / 2
             if np.linalg.norm(mid_point) - 1.0 > ERROR_TOLERANCE:
