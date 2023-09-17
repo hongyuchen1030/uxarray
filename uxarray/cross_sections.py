@@ -2,8 +2,9 @@
 import gmpy2
 import numpy as np
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE, ERROR_TOLERANCE
-from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array, precision_bits_to_decimal_digits
+from uxarray.multi_precision_helpers import mp_dot, mp_cross, mp_norm, is_mpfr_array
 from uxarray.helpers import fma_cross, gram_schmidt, node_xyz_to_lonlat_rad, point_within_GCR, normalize_in_place
+from scipy.optimize import newton
 
 
 def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
@@ -117,5 +118,39 @@ def get_GCA_GCA_intersections(gcr1_cart, gcr2_cart):
             return np.array([-1, -1, -1])  # Intersection out of the interval or
 
 
-def get_GCA_constLat_intersections(gcr1_cart, gcr2_cart):
-    pass
+def __constLat_GCR_Eqns(coords_cart):
+    x_i_old, y_i_old, z_lat = coords_cart
+    # Define the two equations as a tuple
+    
+    equation1 = (y0 * z1 - z0 * y1) * x_i_old + (-x0 * z1 + z0 * x1) * y_i_old + (x0 * y1 - y0 * x1) * z_lat
+    equation2 = x_i_old * x_i_old + y_i_old * y_i_old + z_lat * z_lat - 1
+
+def get_GCA_constLat_intersections(gca_cart, constLat):
+    approx_point = _GCA_constLat_intersections_numerical_approximation(gca_cart, constLat)
+    if approx_point != np.array([-1, -1, -1]):
+        pass
+
+def _GCA_constLat_intersections_numerical_approximation(gca_cart, constLat):
+    e_z = np.array([0, 0, 1])
+    x1, x2 = gca_cart
+    n = normalize_in_place(np.cross(x1, x2))
+    t1 = normalize_in_place(e_z - np.dot(e_z, n) * n)
+    t2 = normalize_in_place(np.cross(n, t1))
+    nx, ny, nz = n
+    z0 = constLat
+    s = np.sqrt(nx**2 + ny**2 - np.linalg.norm(n)**2 * z0**2)
+    px_1 = -(1 / (nx ** 2 + ny ** 2)) * (nx * nz * z0 + ny * s)
+    py_1 = -(1 / (nx ** 2 + ny ** 2)) * (ny * nz * z0 - nx * s)
+    pz_1 = z0
+    p_1 = np.array([px_1, py_1, pz_1])
+
+    px_2 = -(1 / (nx ** 2 + ny ** 2)) * (nx * nz * z0 - ny * s)
+    py_2 = -(1 / (nx ** 2 + ny ** 2)) * (ny * nz * z0 + nx * s)
+    pz_2 = z0
+    p_2 = np.array([px_2, py_2, pz_2])
+    if point_within_GCR(p_1, gca_cart):
+        return p_1
+    elif point_within_GCR(p_2, gca_cart):
+        return p_2
+    else:
+        return np.array([-1, -1, -1])
