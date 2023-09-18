@@ -3,7 +3,6 @@ from uxarray.constants import ERROR_TOLERANCE
 from uxarray.grid.utils import cross_fma
 from uxarray.grid.lines import point_within_gca
 
-
 def gca_gca_intersection(gca1_cart, gca2_cart):
     """Calculate the intersection point(s) of two Great Circle Arcs (GCAs) in a
     Cartesian coordinate system.
@@ -87,3 +86,6 @@ def gca_gca_intersection(gca1_cart, gca2_cart):
         res = np.append(res, x2)
 
     return res
+
+def gca_constlat_intersection(gca1_cart, constlat):
+    pass
