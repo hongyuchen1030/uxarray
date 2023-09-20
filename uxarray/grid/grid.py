@@ -1,6 +1,7 @@
 """uxarray.core.grid module."""
 import xarray as xr
 import numpy as np
+import pandas as pd
 
 from typing import Any, Dict, Optional, Union
 
@@ -8,7 +9,7 @@ from typing import Any, Dict, Optional, Union
 from uxarray.io._exodus import _read_exodus, _encode_exodus
 from uxarray.io._mpas import _read_mpas
 from uxarray.io._ugrid import _read_ugrid, _encode_ugrid, _validate_minimum_ugrid
-from uxarray.io._shapefile import _read_shpfile
+from uxarray.constants import INT_FILL_VALUE, INT_DTYPE
 from uxarray.io._scrip import _read_scrip, _encode_scrip
 from uxarray.io._vertices import _read_face_vertices
 
@@ -788,3 +789,44 @@ class Grid:
         """
         polygons = _grid_to_polygons(self, correct_antimeridian_polygons)
         return polygons
+
+    def build_latlon_bounds(self):
+        if "Mesh2_face_edges" not in self._ds:
+            _build_face_edges_connectivity(self)
+
+        if "Mesh2_node_cart_x" not in self._ds:
+            _populate_cartesian_xyz_coord(self)
+
+        # Use the pandas dataFrame to build interval tree
+        interval_dataframe = pd.DataFrame(columns=['start', 'end', 'face_id'])
+
+        # create a 3D array filled with FillValue
+        temp_latlon_array = np.full((self._ds["Mesh2_face_edges"].sizes["nMesh2_face"], 2, 2), INT_FILL_VALUE)
+
+        # loop over face nodes
+        for i, face_nodes in enumerate(self._ds["Mesh2_face_nodes"]):
+            # get the edges of the current face
+            face_edges_nodes = np.zeros((len(self._ds["Mesh2_face_edges"].values[i]), 2), dtype=INT_DTYPE)
+
+            # loop over edges and get their nodes
+            for j, edge_idx in enumerate(self._ds["Mesh2_face_edges"].values[i]):
+                if edge_idx == INT_FILL_VALUE:
+                    edge_nodes = [INT_FILL_VALUE, INT_FILL_VALUE]
+                else:
+                    edge_nodes = self._ds['Mesh2_edge_nodes'].values[edge_idx]
+
+                face_edges_nodes[j] = edge_nodes
+            # sort edge nodes in counter-clockwise order
+            starting_two_nodes_index = np.array([self._ds["Mesh2_face_nodes"][i][0], self._ds["Mesh2_face_nodes"][i][1]])
+            face_edges_nodes[0] = starting_two_nodes_index
+
+            for idx in range(1, len(face_edges_nodes)):
+                if face_edges_nodes[idx][0] == face_edges_nodes[idx - 1][1]:
+                    continue
+                else:
+                    # Swap the node index in this edge
+                    face_edges_nodes[idx][0], face_edges_nodes[idx][1] = face_edges_nodes[idx][1], \
+                        face_edges_nodes[idx][0]
+
+            # loop over edges and get their nodes
+            pass
