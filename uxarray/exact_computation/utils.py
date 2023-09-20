@@ -242,7 +242,6 @@ def mp_cross(v1, v2):
     z = gmpy2.fmms(v1[0], v2[1], v1[1], v2[0])
     return np.array([x, y, z])
 
-
 def mp_dot(v1, v2):
     """Compute the dot product of two vectors in multiprecision. Already utilized the FMA operation
     Parameters
