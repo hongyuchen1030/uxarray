@@ -113,3 +113,31 @@ def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
         res = np.append(res, x2)
 
     return res
+
+def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False):
+    """Calculate the intersection point(s) of a Great Circle Arc (GCA) and a constant latitude line in a
+    Cartesian coordinate system.
+
+    To reduce relative errors, the Fused Multiply-Add (FMA) operation is utilized.
+    A warning is raised if the given coordinates are not in the cartesian coordinates, or
+    they cannot be accurately handled using floating-point arithmetic.
+
+    Parameters
+    ----------
+    gca_cart : [1, 3] np.ndarray Cartesian coordinates of the first GCA.
+    constLat : float
+        The constant latitude of the latitude line.
+    fma_disabled : bool, optional (default=False)
+        If True, the FMA operation is disabled. And a naive `np.cross` is used instead.
+
+    Returns
+    -------
+    np.ndarray
+        Cartesian coordinates of the intersection point(s).
+
+    Raises
+    ------
+    ValueError
+        If the input GCA is not in the cartesian [x, y, z] format.
+    """
+    pass
