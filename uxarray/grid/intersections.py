@@ -1,6 +1,6 @@
 import numpy as np
 from uxarray.constants import ERROR_TOLERANCE
-from uxarray.grid.utils import cross_fma
+from uxarray.grid.utils import cross_fma, _newton_raphson_solver_for_gca_constLat
 from uxarray.grid.lines import point_within_gca
 import platform
 import warnings
@@ -66,7 +66,6 @@ def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
 
         # Raise a warning for windows users
         if platform.system() == "Windows":
-
             warnings.warn(
                 "The C/C++ implementation of FMA in MS Windows is reportedly broken. Use with care. (bug report: "
                 "https://bugs.python.org/msg312480)"
@@ -76,14 +75,14 @@ def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
     # Check perpendicularity conditions and floating-point arithmetic limitations
     if not np.allclose(np.dot(w0w1_norm, w0), 0,
                        atol=ERROR_TOLERANCE) or not np.allclose(
-                           np.dot(w0w1_norm, w1), 0, atol=ERROR_TOLERANCE):
+        np.dot(w0w1_norm, w1), 0, atol=ERROR_TOLERANCE):
         warnings.warn(
             "The current input data cannot be computed accurately using floating-point arithmetic. Use with caution."
         )
 
     if not np.allclose(np.dot(v0v1_norm, v0), 0,
                        atol=ERROR_TOLERANCE) or not np.allclose(
-                           np.dot(v0v1_norm, v1), 0, atol=ERROR_TOLERANCE):
+        np.dot(v0v1_norm, v1), 0, atol=ERROR_TOLERANCE):
         warnings.warn(
             "The current input data cannot be computed accurately using floating-point arithmetic.  Use with caution. "
         )
@@ -91,7 +90,7 @@ def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
     if not np.allclose(
             np.dot(cross_norms,
                    v0v1_norm), 0, atol=ERROR_TOLERANCE) or not np.allclose(
-                       np.dot(cross_norms, w0w1_norm), 0, atol=ERROR_TOLERANCE):
+        np.dot(cross_norms, w0w1_norm), 0, atol=ERROR_TOLERANCE):
         warnings.warn(
             "The current input data cannot be computed accurately using floating-point arithmetic. Use with caution. "
         )
@@ -114,7 +113,8 @@ def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
 
     return res
 
-def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False):
+
+def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False, verbose=False):
     """Calculate the intersection point(s) of a Great Circle Arc (GCA) and a constant latitude line in a
     Cartesian coordinate system.
 
@@ -124,7 +124,7 @@ def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False):
 
     Parameters
     ----------
-    gca_cart : [1, 3] np.ndarray Cartesian coordinates of the first GCA.
+    gca_cart : [2, 3] np.ndarray Cartesian coordinates of the two end points GCA.
     constLat : float
         The constant latitude of the latitude line.
     fma_disabled : bool, optional (default=False)
@@ -140,4 +140,27 @@ def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False):
     ValueError
         If the input GCA is not in the cartesian [x, y, z] format.
     """
-    pass
+    constZ = np.sin(constLat)
+    x1, x2 = gca_cart
+    n = cross_fma(x1, x2)
+    nx, ny, nz = n
+
+    s_tilde = np.sqrt(nx ** 2 + ny ** 2 - np.linalg.norm(n) ** 2 * constZ ** 2)
+    p1_x = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * nx * nz + s_tilde * ny)
+    p2_x = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * nx * nz - s_tilde * ny)
+    p1_y = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * ny * nz - s_tilde * nx)
+    p2_y = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * ny * nz + s_tilde * nx)
+
+    p1 = np.array([p1_x, p1_y, constZ])
+    p2 = np.array([p2_x, p2_y, constZ])
+
+    # Now test which intersection point is within the GCA range
+    res = np.array([])
+    if point_within_gca(p1, gca_cart):
+        converged_pt = _newton_raphson_solver_for_gca_constLat(p1, gca_cart, verbose=verbose)
+        return converged_pt
+    elif point_within_gca(p2, gca_cart):
+        converged_pt = _newton_raphson_solver_for_gca_constLat(p2, gca_cart, verbose=verbose)
+        return converged_pt
+
+    return res

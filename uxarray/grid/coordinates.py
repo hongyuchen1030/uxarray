@@ -5,8 +5,10 @@ import math
 from numba import njit, config
 
 from uxarray.constants import ENABLE_JIT_CACHE, ENABLE_JIT, ERROR_TOLERANCE
+import gmpy2
+from gmpy2 import mpfr, fmms
 
-config.DISABLE_JIT = not ENABLE_JIT
+config.DISABLE_JIT = True
 
 
 @njit(cache=ENABLE_JIT_CACHE)
@@ -32,9 +34,20 @@ def node_lonlat_rad_to_xyz(node_coord):
     if len(node_coord) != 2:
         raise RuntimeError(
             "Input array should have a length of 2: [longitude, latitude]")
-    lon = node_coord[0]
-    lat = node_coord[1]
-    return [np.cos(lon) * np.cos(lat), np.sin(lon) * np.cos(lat), np.sin(lat)]
+    if np.any(
+            np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
+                node_coord)):
+        lon = node_coord[0]
+        lat = node_coord[1]
+        return [
+            gmpy2.mul(gmpy2.cos(lon), gmpy2.cos(lat)),
+            gmpy2.mul(gmpy2.sin(lon), gmpy2.cos(lat)),
+            gmpy2.sin(lat)
+        ]
+    else:
+        lon = node_coord[0]
+        lat = node_coord[1]
+        return [np.cos(lon) * np.cos(lat), np.sin(lon) * np.cos(lat), np.sin(lat)]
 
 
 @njit(cache=ENABLE_JIT_CACHE)
@@ -60,26 +73,46 @@ def node_xyz_to_lonlat_rad(node_coord):
     if len(node_coord) != 3:
         raise RuntimeError("Input array should have a length of 3: [x, y, z]")
 
-    [dx, dy, dz] = normalize_in_place(node_coord)
-    dx /= np.absolute(dx * dx + dy * dy + dz * dz)
-    dy /= np.absolute(dx * dx + dy * dy + dz * dz)
-    dz /= np.absolute(dx * dx + dy * dy + dz * dz)
+    if np.any(
+            np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
+                node_coord)):
+        [dx, dy, dz] = normalize_in_place(node_coord)
+        # The precision is set by the gmpy2.context through the set_global_precision() function
+        if gmpy2.cmp_abs(dz, mpfr('1.0')):
+            d_lon_rad = gmpy2.atan2(dy, dx)
+            d_lat_rad = gmpy2.asin(dz)
 
-    if np.absolute(dz) < (1.0 - ERROR_TOLERANCE):
-        d_lon_rad = math.atan2(dy, dx)
-        d_lat_rad = np.arcsin(dz)
+            if gmpy2.cmp(d_lon_rad, mpfr('0.0')) < 0:
+                d_lon_rad += gmpy2.mul(mpfr('2.0'), gmpy2.const_pi())
+        elif gmpy2.cmp(dz, mpfr('0.0')) > 0:
+            d_lon_rad = mpfr('0.0')
+            d_lat_rad = gmpy2.mul(mpfr('0.5'), gmpy2.const_pi())
+        else:
+            d_lon_rad = mpfr('0.0')
+            d_lat_rad = gmpy2.mul(mpfr('-0.5'), gmpy2.const_pi())
 
-        if d_lon_rad < 0.0:
-            d_lon_rad += 2.0 * np.pi
-    elif dz > 0.0:
-        d_lon_rad = 0.0
-        d_lat_rad = 0.5 * np.pi
+        return [d_lon_rad, d_lat_rad]
     else:
-        d_lon_rad = 0.0
-        d_lat_rad = -0.5 * np.pi
 
-    return [d_lon_rad, d_lat_rad]
+        [dx, dy, dz] = normalize_in_place(node_coord)
+        dx /= np.absolute(dx * dx + dy * dy + dz * dz)
+        dy /= np.absolute(dx * dx + dy * dy + dz * dz)
+        dz /= np.absolute(dx * dx + dy * dy + dz * dz)
 
+        if np.absolute(dz) < (1.0 - ERROR_TOLERANCE):
+            d_lon_rad = math.atan2(dy, dx)
+            d_lat_rad = np.arcsin(dz)
+
+            if d_lon_rad < 0.0:
+                d_lon_rad += 2.0 * np.pi
+        elif dz > 0.0:
+            d_lon_rad = 0.0
+            d_lat_rad = 0.5 * np.pi
+        else:
+            d_lon_rad = 0.0
+            d_lat_rad = -0.5 * np.pi
+
+        return [d_lon_rad, d_lat_rad]
 
 @njit(cache=ENABLE_JIT_CACHE)
 def normalize_in_place(node):
@@ -89,12 +122,12 @@ def normalize_in_place(node):
 
     Parameters
     ----------
-    node: float list
+    node: list, python `float` or gmpy2.mpfr
         3D Cartesian Coordinates [x, y, z]
 
     Returns
     ----------
-    float list
+    normalized_node: list, python `float` or gmpy2.mpfr
         the result unit vector [x, y, z] where :math:`x^2 + y^2 + z^2 = 1`
 
     Raises
@@ -104,7 +137,20 @@ def normalize_in_place(node):
     """
     if len(node) != 3:
         raise RuntimeError("Input array should have a length of 3: [x, y, z]")
-    return list(np.array(node) / np.linalg.norm(np.array(node), ord=2))
+
+    if np.any(
+            np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
+                node)):
+        # Convert the node to mpmath array
+        norm = gmpy2.sqrt(gmpy2.fsum([gmpy2.square(value) for value in node]))
+
+        # Divide each element of the node by the norm using gmpy2
+        normalized_node = [gmpy2.div(element, norm) for element in node]
+
+        # Convert the result back to numpy array
+        return np.array(normalized_node)
+    else:
+        return np.array(node) / np.linalg.norm(np.array(node), ord=2)
 
 
 def _get_xyz_from_lonlat(node_lon, node_lat):

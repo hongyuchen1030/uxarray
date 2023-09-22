@@ -2,7 +2,7 @@ import gmpy2
 from gmpy2 import mpfr, mpz
 import numpy as np
 import math
-from uxarray.constants import FLOAT_PRECISION_BITS, INT_FILL_VALUE_MPZ
+from uxarray.constants import FLOAT_PRECISION_BITS, INT_FILL_VALUE_MPZ, ERROR_TOLERANCE
 
 
 def set_global_precision(global_precision=FLOAT_PRECISION_BITS):
@@ -296,3 +296,85 @@ def is_mpfr_array(arr):
     """
     is_mpfr = np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))
     return np.any(is_mpfr(arr))
+
+def multi__inv_jacobian(x0, x1, y0, y1, z0, z1, x_i_old, y_i_old):
+    # d_dx = (x0 * x_i_old - x1 * x_i_old * z0 + y0 * y_i_old * z1 - y1 * y_i_old * z0 - y1 * y_i_old * z0)
+    # d_dy = 2 * (x0 * x_i_old * z1 - x1 * x_i_old * z0 + y0 * y_i_old * z1 - y1 * y_i_old * z0)
+    #
+    # # row 1
+    # J[0, 0] = y_i_old / d_dx
+    # J[0, 1] = (x0 * z1 - z0 * x1) / d_dy
+    # # row 2
+    # J[1, 0] = x_i_old / d_dx
+    # J[1, 1] = (y0 * z1 - z0 * y1) / d_dy
+
+    # The Jacobian Matrix
+    #jacobian = [[gmpy2.fmms(y0, z1, z0, y1), gmpy2.fmms(z0, x1, x0, z1)], [mpfr('2') * x_i_old, mpfr('2') * y_i_old]]
+    x0z1_z0x1 = gmpy2.fmms(x0, z1, z0, x1)
+    y0z1_y1z0 = gmpy2.fmms(y0, z1, z0, y1)
+    denominator = gmpy2.fmma(x0z1_z0x1, x_i_old, y0z1_y1z0, y_i_old)
+    if denominator == 0:
+        raise ValueError('The denominator of the inverse Jacobian is zero. The inverse Jacobian is not defined.')
+    inverse_jacobian = [[y_i_old/denominator, x0z1_z0x1/(mpfr('2.0') * denominator)],
+                        [-x_i_old/denominator, y0z1_y1z0/(mpfr('2.0') * denominator)]]
+
+
+    return inverse_jacobian
+
+
+def multi__newton_raphson_solver_for_gca_constLat(init_cart, gca_cart, max_iter=1000, verbose=False, error_tol=mpfr(str(ERROR_TOLERANCE))):
+    """
+    Multiprecision Solver for the intersection point between a great circle arc and a constant latitude.
+
+    Args:
+        init_cart (np.ndarray): Initial guess for the intersection point in mpfr format.
+        w0_cart (np.ndarray): First vector defining the great circle arc in mpfr format.
+        w1_cart (np.ndarray): Second vector defining the great circle arc in mpfr format.
+        max_iter (int, optional): Maximum number of iterations. Defaults to 1000.
+        verbose (bool, optional): Whether to print verbose output. Defaults to False.
+        error_tol (mpfr, optional): The error tolerance. Defaults to ERROR_TOLERANCE.
+
+    Returns:
+        np.ndarray or None: The intersection point or None if the solver fails to converge.
+    """
+    w0_cart, w1_cart = gca_cart
+    y_guess = [init_cart[0], init_cart[1]]
+    y_new = y_guess
+    constZ = init_cart[2]
+    error = gmpy2.inf()
+
+    _iter = 1
+
+    while (gmpy2.cmp(error, error_tol) == 1) and _iter < max_iter:
+        f_vector = np.array([
+            mp_dot(mp_cross(w0_cart, w1_cart), np.array([y_guess[0], y_guess[1], constZ])),
+            y_guess[0] * y_guess[0] + y_guess[1] * y_guess[1] + constZ * constZ - mpfr('1.0')
+        ])
+
+        j_inv = multi__inv_jacobian(w0_cart[0], w1_cart[0], w0_cart[1], w1_cart[1], w0_cart[2], w1_cart[2], y_guess[0],
+                                 y_guess[1])
+
+        # Calculate y_new using gmpy2.fmma for matrix multiplication and gmpy2.fmms for subtraction
+        j_inv_mul_f_vector = [gmpy2.fmma(j_inv[0][0], f_vector[0], j_inv[0][1], f_vector[1]),
+                              gmpy2.fmma(j_inv[1][0], f_vector[0], j_inv[1][1], f_vector[1])]
+        y_new = [y_guess[0] - j_inv_mul_f_vector[0], y_guess[1] - j_inv_mul_f_vector[1]]
+
+        # Calculate the absolute differences between y_guess and y_new
+        abs_diff_0 = abs(y_guess[0] - y_new[0])
+        abs_diff_1 = abs(y_guess[1] - y_new[1])
+
+        # Find the maximum absolute difference using gmpy2.maxnum
+        error = gmpy2.maxnum(abs_diff_0, abs_diff_1)
+
+        y_guess = y_new
+
+        if verbose:
+            # Print out the error using the mpfr format
+
+            print(f"Newton method iter: {_iter}, error: ")
+            print("{0:.20Df}".format(error))
+        _iter += 1
+
+    return np.append(y_new, constZ)
+
+
