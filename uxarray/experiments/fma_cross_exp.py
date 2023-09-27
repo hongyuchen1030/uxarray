@@ -7,7 +7,7 @@ def fma_cross_exp():
     # Generate 2 vectors in Cartesian coordinates that are closed to others in mpfr
     set_global_precision(53)
     v1 = np.array([mpfr('1.0'), mpfr('1.0000000000000010'), mpfr('1.0')])
-    v2 = np.array([mpfr('0.5'), mpfr('1.0000000000000001'), mpfr('1.0000000000000001')])
+    v2 = np.array([mpfr('1.0'), mpfr('1.0000000000000001'), mpfr('1.0000000000000001')])
     x1, y1, z1 = v1
     x2, y2, z2 = v2
 
@@ -36,8 +36,14 @@ def fma_cross_exp():
     print("Absolute error bound: ", abs_err_bound)
 
 
-
+def calculate_rel_error():
+    u = mpfr(np.finfo(np.float64).eps)
+    term_1 = (mpfr('1.0') + mpfr('9.0') * u) / (mpfr('1.0') + mpfr('2.5') * u)
+    term_2 = (mpfr('1.0') + u - 2 * u ** 2)
+    rel_err = abs(term_1 * term_2 - mpfr('1.0'))
+    print("Final relative error: ", rel_err)
 
 
 if __name__ == "__main__":
-    fma_cross_exp()
+    # fma_cross_exp()
+    calculate_rel_error()
