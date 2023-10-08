@@ -1,5 +1,10 @@
 import numpy as np
 from uxarray.constants import ERROR_TOLERANCE
+from uxarray.exact_computation.utils import is_mpfr_array, mp_norm
+import math
+import gmpy2
+from gmpy2 import mpfr
+
 
 
 def _replace_fill_values(grid_var, original_fill, new_fill, new_dtype=None):
@@ -190,3 +195,40 @@ def _newton_raphson_solver_for_gca_constLat(init_cart, gca_cart, max_iter=1000, 
         _iter += 1
 
     return np.append(y_new, constZ)
+
+def angle_of_2_vectors(u, v):
+    """helper function to calculate the angle of two 3D vectors u,v (in 3D Cartesian Coordinates) and then return
+    the angle in radiance using 𝜃=2 𝑎𝑡𝑎𝑛2(|| ||𝑣||𝑢−||𝑢||𝑣 ||, || ||𝑣||𝑢+||𝑢||𝑣 ||).
+    Reference: W. Kahan's advice in his paper "How Futile are Mindless Assessments
+    of Roundoff in Floating-Point Computation?" (https://www.cs.berkeley.edu/~wkahan/Mindless.pdf),
+    section 12 "Mangled Angles."
+
+    Parameters
+    ----------
+    u : numpy array of float
+        Vector in 3D Cartesian Coordinates [x, y, z]
+    u : numpy array of float
+        Vector in 3D Cartesian Coordinates [x, y, z]
+
+    Returns
+    -------
+    float
+        The angle between two vectors in radian
+
+    """
+    if is_mpfr_array(u) or is_mpfr_array(v):
+        v_norm_times_u = mp_norm(v) * u
+        u_norm_times_v = mp_norm(u) * v
+        vec_minus = v_norm_times_u - u_norm_times_v
+        vec_sum = v_norm_times_u + u_norm_times_v
+        angle_u_v_rad = mpfr('2.0') * gmpy2.atan2(mp_norm(vec_minus),
+                                       mp_norm(vec_sum))
+        return angle_u_v_rad
+    else:
+        v_norm_times_u = np.linalg.norm(v) * u
+        u_norm_times_v = np.linalg.norm(u) * v
+        vec_minus = v_norm_times_u - u_norm_times_v
+        vec_sum = v_norm_times_u + u_norm_times_v
+        angle_u_v_rad = 2 * math.atan2(np.linalg.norm(vec_minus),
+                                       np.linalg.norm(vec_sum))
+        return angle_u_v_rad
