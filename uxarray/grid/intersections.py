@@ -1,6 +1,6 @@
 import numpy as np
 from uxarray.constants import ERROR_TOLERANCE
-from uxarray.grid.utils import cross_fma, _newton_raphson_solver_for_gca_constLat
+from uxarray.grid.utils import cross_fma, _newton_raphson_solver_for_gca_constLat, _one_var_newton_raphson_solver_for_gca_constLat
 from uxarray.grid.lines import point_within_gca
 import platform
 import warnings
@@ -157,10 +157,10 @@ def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False, verbose=Fa
     # Now test which intersection point is within the GCA range
     res = np.array([])
     if point_within_gca(p1, gca_cart):
-        converged_pt = _newton_raphson_solver_for_gca_constLat(p1, gca_cart, verbose=verbose)
+        converged_pt = _one_var_newton_raphson_solver_for_gca_constLat(p1, gca_cart, verbose=verbose)
         return converged_pt
     elif point_within_gca(p2, gca_cart):
-        converged_pt = _newton_raphson_solver_for_gca_constLat(p2, gca_cart, verbose=verbose)
+        converged_pt = _one_var_newton_raphson_solver_for_gca_constLat(p2, gca_cart, verbose=verbose)
         return converged_pt
 
     return res

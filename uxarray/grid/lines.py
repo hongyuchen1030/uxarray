@@ -3,7 +3,9 @@ import numpy as np
 from uxarray.grid.coordinates import node_xyz_to_lonlat_rad
 
 from uxarray.constants import ERROR_TOLERANCE
-
+import gmpy2
+from gmpy2 import mpfr, fmms
+from uxarray.exact_computation.utils import convert_to_multiprecision, mp_cross, mp_norm, mp_dot
 
 def _to_list(obj):
     if not isinstance(obj, list):
@@ -59,51 +61,98 @@ def point_within_gca(pt, gca_cart):
     GCRv0_lonlat = node_xyz_to_lonlat_rad(_to_list(gca_cart[0]))
     GCRv1_lonlat = node_xyz_to_lonlat_rad(_to_list(gca_cart[1]))
 
-    # Convert the list to np.float64
-    gca_cart[0] = np.array(gca_cart[0], dtype=np.float64)
-    gca_cart[1] = np.array(gca_cart[1], dtype=np.float64)
+    # Check if the GCR is presented in the multiprecision format
+    if np.any(
+            np.logical_or(
+                np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
+                    pt),
+                np.vectorize(lambda x: isinstance(x, (gmpy2.mpfr, gmpy2.mpz)))(
+                    gca_cart))):
 
-    # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
-    angle = _angle_of_2_vectors(gca_cart[0], gca_cart[1])
-    if np.allclose(angle, np.pi, rtol=0, atol=ERROR_TOLERANCE):
-        raise ValueError(
-            "The input Great Circle Arc is exactly 180 degree, this Great Circle Arc can have multiple planes. "
-            "Consider breaking the Great Circle Arc"
-            "into two Great Circle Arcs")
+        #TODO: Fill the 180 degree case
 
-    if not np.allclose(np.dot(np.cross(gca_cart[0], gca_cart[1]), pt),
-                       0,
-                       rtol=0,
-                       atol=ERROR_TOLERANCE):
-        return False
+        # First determine if the pt lies on the plane defined by the gcr
+        if gmpy2.cmp(mp_dot(mp_cross(gca_cart[0], gca_cart[1]), pt),
+                     mpfr(str(ERROR_TOLERANCE))) > 0:
+            return False
 
-    # Special case: If the gcr goes across the anti-meridian
-    # If the pt and the GCR are on the same longitude (the y coordinates are the same)
-    if GCRv0_lonlat[0] == GCRv1_lonlat[0] == pt_lonlat[0]:
-        # Now use the latitude to determine if the pt falls between the interval
-        return in_between(GCRv0_lonlat[1], pt_lonlat[1], GCRv1_lonlat[1])
+        # Special case:
+        # If the pt and the GCR are on the same longitude (the y coordinates are the same)
+        if gmpy2.cmp(GCRv0_lonlat[0], GCRv1_lonlat[0]) == 0 == gmpy2.cmp(
+                GCRv0_lonlat[0], pt_lonlat[0]):
+            # Now use the latitude to determine if the pt falls between the interval
+            return in_between(GCRv0_lonlat[1], pt_lonlat[1], GCRv1_lonlat[1])
 
-    # The anti-meridian case Sufficient condition: absolute difference between the longitudes of the two
-    # vertices is greater than 180 degrees (π radians): abs(GCRv1_lon - GCRv0_lon) > π
-    if abs(GCRv1_lonlat[0] - GCRv0_lonlat[0]) > np.pi:
 
-        # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
-        # Case 1: where 0 --> x0--> 180 -->x1 -->0 case is lager than the 180degrees (pi radians)
-        if GCRv0_lonlat[0] <= np.pi <= GCRv1_lonlat[0]:
-            raise ValueError(
-                "The input Great Circle Arc span is larger than 180 degree, please break it into two."
-            )
+        # The anti-meridian case Sufficient condition: absolute difference between the longitudes of the two
+        # vertices is greater than 180 degrees (π radians): abs(GCRv1_lon - GCRv0_lon) > π
+        if gmpy2.cmp_abs(GCRv1_lonlat[0] - GCRv0_lonlat[0], gmpy2.const_pi()) > 0:
 
-        # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
-        # Case 2: The anti-meridian case where 180 -->x0 --> 0 lon --> x1 --> 180 lon
-        elif 2 * np.pi > GCRv0_lonlat[0] > np.pi > GCRv1_lonlat[0] > 0:
-            return in_between(GCRv0_lonlat[0],
-                              pt_lonlat[0], 2 * np.pi) or in_between(
-                                  0, pt_lonlat[0], GCRv1_lonlat[0])
+            # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
+            # Case 1: where 0 --> x0--> 180 -->x1 -->0 case is lager than the 180degrees (pi radians)
+            if gmpy2.cmp(GCRv0_lonlat[0], gmpy2.const_pi()) * gmpy2.cmp(gmpy2.const_pi(), GCRv1_lonlat[0]) < 0:
+                raise ValueError(
+                    "The input Great Circle Arc span is larger than 180 degree, please break it into two."
+                )
 
-    # The non-anti-meridian case.
+            # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
+            # Case 2: The anti-meridian case where 180 -->x0 --> 0 lon --> x1 --> 180 lon
+            elif (gmpy2.cmp(mpfr('2.0') * gmpy2.const_pi(), GCRv0_lonlat[0]) > 0) and (gmpy2.cmp(GCRv0_lonlat[0], gmpy2.const_pi()) > 0) and (gmpy2.cmp(gmpy2.const_pi(), GCRv1_lonlat[0]) > 0) and (gmpy2.cmp(GCRv1_lonlat[0], 0) > 0):
+                return in_between(GCRv0_lonlat[0],
+                                  pt_lonlat[0], mpfr('2.0') * gmpy2.const_pi()) or in_between(
+                                      0, pt_lonlat[0], GCRv1_lonlat[0])
+
+        # The non-anti-meridian case.
+        else:
+            return in_between(GCRv0_lonlat[0], pt_lonlat[0], GCRv1_lonlat[0])
+
+
     else:
-        return in_between(GCRv0_lonlat[0], pt_lonlat[0], GCRv1_lonlat[0])
+        # Convert the list to np.float64
+        gca_cart[0] = np.array(gca_cart[0], dtype=np.float64)
+        gca_cart[1] = np.array(gca_cart[1], dtype=np.float64)
+
+        # First if the input GCR is exactly 180 degree, we throw an exception, since this GCR can have multiple planes
+        angle = _angle_of_2_vectors(gca_cart[0], gca_cart[1])
+        if np.allclose(angle, np.pi, rtol=0, atol=ERROR_TOLERANCE):
+            raise ValueError(
+                "The input Great Circle Arc is exactly 180 degree, this Great Circle Arc can have multiple planes. "
+                "Consider breaking the Great Circle Arc"
+                "into two Great Circle Arcs")
+
+        if not np.allclose(np.dot(np.cross(gca_cart[0], gca_cart[1]), pt),
+                           0,
+                           rtol=0,
+                           atol=ERROR_TOLERANCE):
+            return False
+
+        # Special case: If the gcr goes across the anti-meridian
+        # If the pt and the GCR are on the same longitude (the y coordinates are the same)
+        if GCRv0_lonlat[0] == GCRv1_lonlat[0] == pt_lonlat[0]:
+            # Now use the latitude to determine if the pt falls between the interval
+            return in_between(GCRv0_lonlat[1], pt_lonlat[1], GCRv1_lonlat[1])
+
+        # The anti-meridian case Sufficient condition: absolute difference between the longitudes of the two
+        # vertices is greater than 180 degrees (π radians): abs(GCRv1_lon - GCRv0_lon) > π
+        if abs(GCRv1_lonlat[0] - GCRv0_lonlat[0]) > np.pi:
+
+            # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
+            # Case 1: where 0 --> x0--> 180 -->x1 -->0 case is lager than the 180degrees (pi radians)
+            if GCRv0_lonlat[0] <= np.pi <= GCRv1_lonlat[0]:
+                raise ValueError(
+                    "The input Great Circle Arc span is larger than 180 degree, please break it into two."
+                )
+
+            # The necessary condition: the pt longitude is on the opposite side of the anti-meridian
+            # Case 2: The anti-meridian case where 180 -->x0 --> 0 lon --> x1 --> 180 lon
+            elif 2 * np.pi > GCRv0_lonlat[0] > np.pi > GCRv1_lonlat[0] > 0:
+                return in_between(GCRv0_lonlat[0],
+                                  pt_lonlat[0], 2 * np.pi) or in_between(
+                                      0, pt_lonlat[0], GCRv1_lonlat[0])
+
+        # The non-anti-meridian case.
+        else:
+            return in_between(GCRv0_lonlat[0], pt_lonlat[0], GCRv1_lonlat[0])
 
 
 def in_between(p, q, r) -> bool:
@@ -124,7 +173,13 @@ def in_between(p, q, r) -> bool:
         True if q is between p and r, False otherwise.
     """
 
-    return p <= q <= r or r <= q <= p
+    if isinstance(p, gmpy2.mpfr) or isinstance(q, gmpy2.mpfr) or isinstance(
+            r, gmpy2.mpfr):
+        return gmpy2.cmp(p, q) <= 0 <= gmpy2.cmp(r, q) or gmpy2.cmp(
+            r, q) <= 0 <= gmpy2.cmp(p, q)
+    else:
+        return p <= q <= r or r <= q <= p
+
 
 
 def _angle_of_2_vectors(u, v):

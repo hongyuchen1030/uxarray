@@ -377,4 +377,43 @@ def multi__newton_raphson_solver_for_gca_constLat(init_cart, gca_cart, max_iter=
 
     return np.append(y_new, constZ)
 
+def multi_one_var_newton_raphson_solver_for_gca_constLat(init_cart, gca_cart, max_iter=1000, verbose=False, error_tol=mpfr(str(ERROR_TOLERANCE)), test_mode = False, ref_result = None):
+    n_x, n_y, n_z = mp_cross(gca_cart[0], gca_cart[1])
+    p_x = init_cart[0]
+    p_x_new = p_x
+    error = gmpy2.inf()
+    constZ = init_cart[2]
 
+    _iter = 0
+
+    while (gmpy2.cmp(error, error_tol) == 1) and _iter < max_iter:
+        if gmpy2.cmp(gmpy2.sqrt(mpfr('1.0') - p_x**2 - constZ**2), mpfr('0.0')) != 0:
+            f_p_x = n_x * p_x + n_y * gmpy2.sqrt(mpfr('1.0') - p_x**2 - constZ**2) + n_z * constZ
+            f_1st_deriv = n_x - (n_y * p_x) / gmpy2.sqrt(mpfr('1.0') - p_x**2 - constZ**2)
+            p_x_new = p_x - f_p_x / f_1st_deriv
+            error = abs(p_x - p_x_new)
+            if test_mode and ref_result is not None:
+                xn_1_ref = abs(p_x_new - ref_result)
+                xn_ref = abs(p_x - ref_result)
+
+                if xn_ref != 0:
+                    M = xn_1_ref / xn_ref ** 2
+                else:
+                    raise ValueError('M cannot be calculated because the current result is already correct')
+                # Print out M to see it can be bounded
+                print(f"Newton method iter: {_iter}, M: ")
+                print("{0:.20Df}".format(M))
+            elif test_mode and ref_result is None:
+                raise ValueError('The reference result is not provided.')
+            p_x = p_x_new
+            if verbose:
+                # Print out the error using the mpfr format
+
+                print(f"Newton method iter: {_iter}, error: ")
+                print("{0:.20Df}".format(error))
+
+            _iter += 1
+        else:
+            raise RuntimeError("The intersection point has p_y = 0, which doesn't have valid 1st deriviative.")
+
+    return np.array([p_x_new, gmpy2.sqrt(1 - p_x_new ** 2 - constZ ** 2), constZ])

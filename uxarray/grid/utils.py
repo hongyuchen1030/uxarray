@@ -196,6 +196,36 @@ def _newton_raphson_solver_for_gca_constLat(init_cart, gca_cart, max_iter=1000, 
 
     return np.append(y_new, constZ)
 
+def _one_var_newton_raphson_solver_for_gca_constLat(init_cart, gca_cart, max_iter=1000, verbose=False):
+    tolerance = ERROR_TOLERANCE
+    w0_cart, w1_cart = gca_cart
+    error = float('inf')
+    constZ = init_cart[2]
+
+    n_x, n_y, n_z = cross_fma(w0_cart, w1_cart)
+    p_x = init_cart[0]
+    p_x_new = p_x
+    _iter = 0
+
+    while error > tolerance and _iter < max_iter:
+        f_p_x = n_x * p_x + n_y * math.sqrt(1 - p_x**2 - constZ**2) + n_z * constZ
+
+        if math.sqrt(1 - p_x**2 - constZ**2) != 0:
+
+            f_1st_deriv = n_x - (n_y * p_x) / math.sqrt(1 - p_x**2 - constZ**2)
+
+            p_x_new = p_x - f_p_x / f_1st_deriv
+            error = np.abs(p_x - p_x_new)
+            p_x = p_x_new
+
+            if verbose:
+                print(f"Newton method iter: {_iter}, error: {error}")
+            _iter += 1
+        else:
+            raise RuntimeError("The intersection point has p_y = 0, which doesn't have valid 1st deriviative.")
+
+    return np.array([p_x_new, math.sqrt(1 - p_x_new**2 - constZ**2), constZ])
+
 def angle_of_2_vectors(u, v):
     """helper function to calculate the angle of two 3D vectors u,v (in 3D Cartesian Coordinates) and then return
     the angle in radiance using 𝜃=2 𝑎𝑡𝑎𝑛2(|| ||𝑣||𝑢−||𝑢||𝑣 ||, || ||𝑣||𝑢+||𝑢||𝑣 ||).
