@@ -81,7 +81,7 @@ class TestPredicate(TestCase):
 
     def test_pole_point_inside_polygon_from_vertice_south(self):
         # Define a face as a list of vertices on the unit sphere
-        # Here, we're defining a square like structure around the south pole
+        # Here, we're defining a square like structure around the south pole]
         vertices = [[0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [0.0, 0.0, -1.0]]
 
         # Normalize the vertices to ensure they lie on the unit sphere
@@ -95,6 +95,30 @@ class TestPredicate(TestCase):
         face_edge_cart = np.array([[vertices[0], vertices[1]],
                                    [vertices[1], vertices[2]],
                                    [vertices[2], vertices[0]]])
+
+        # Check if the North pole is inside the polygon
+        result = ux.grid.geometry._pole_point_inside_polygon(
+            'North', face_edge_cart)
+        self.assertFalse(result, "North pole should not be inside the polygon")
+
+        # Check if the South pole is inside the polygon
+        result = ux.grid.geometry._pole_point_inside_polygon(
+            'South', face_edge_cart)
+        self.assertTrue(result, "South pole should be inside the polygon")
+
+        # Define a face as a list of vertices on the unit sphere
+        # Here, we're defining a 4-vertices polygon around the south pole
+        vertices = [[0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5]]
+
+        # Normalize the vertices to ensure they lie on the unit sphere
+        for i, vertex in enumerate(vertices):
+            float_vertex = [float(coord) for coord in vertex]
+            vertices[i] = ux.grid.coordinates.normalize_in_place(float_vertex)
+
+        face_edge_cart = np.array([[vertices[0], vertices[1]],
+                                   [vertices[1], vertices[2]],
+                                   [vertices[2], vertices[3]],
+                                   [vertices[3], vertices[0]]])
 
         # Check if the North pole is inside the polygon
         result = ux.grid.geometry._pole_point_inside_polygon(
