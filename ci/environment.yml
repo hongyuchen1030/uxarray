@@ -1,8 +1,12 @@
 name: uxarray_build
 channels:
   - conda-forge
+  - pyviz
 dependencies:
+  - cartopy
   - dask
+  - datashader
+  - holoviews
   - matplotlib-base
   - netcdf4
   - numba
@@ -13,6 +17,7 @@ dependencies:
   - pyarrow<13.0.0   # pin due to CI faliures on macOS & ubuntu
   - pytest
   - pytest-cov
+  - requests
   - scikit-learn
   - scipy
   - shapely

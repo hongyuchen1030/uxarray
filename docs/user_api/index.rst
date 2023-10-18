@@ -49,6 +49,13 @@ Methods
    UxDataset.info
    UxDataset.integrate
 
+Plotting
+--------
+.. autosummary::
+   :toctree: _autosummary
+
+   UxDataset.plot
+
 
 UxDataArray
 ===========
@@ -88,6 +95,15 @@ Methods
    :toctree: _autosummary
 
    UxDataArray.integrate
+
+Plotting
+--------
+.. autosummary::
+   :toctree: _autosummary
+
+   UxDataArray.plot
+   UxDataArray.plot.datashade
+   UxDataArray.plot.rasterize
 
 
 
@@ -162,6 +178,36 @@ Attributes
    Grid.corner_node_balltree
    Grid.center_node_balltree
 
+Plotting
+--------
+.. autosummary::
+   :toctree: _autosummary
+
+   Grid.plot
+
+
+
+Visualization
+=============
+
+Accessors
+---------
+.. autosummary::
+   :toctree: _autosummary
+
+   plot.accessor.GridPlotAccessor
+   plot.accessor.UxDataArrayPlotAccessor
+   plot.accessor.UxDatasetPlotAccessor
+
+UxDataArray Plotting Methods
+----------------------------
+.. autosummary::
+   :toctree: _autosummary
+
+   plot.dataarray_plot.datashade
+   plot.dataarray_plot.rasterize
+
+
 
 Nearest Neighbors
 =================
@@ -229,6 +275,7 @@ Intersections
    :toctree: _autosummary
 
    grid.intersections.gca_gca_intersection
+   grid.intersections.gca_constLat_intersection
 
 Utils
 -----
