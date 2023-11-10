@@ -80,3 +80,24 @@ class TestFMAOperations(TestCase):
         x, y, z = ac_utils._err_fmac(a, b, c)
         self.assertEquals(x, pyfma.fma(a, b, c))
         self.assertAlmostEquals(a * b + c, x + y + z, places=15)
+
+class TestNorm(TestCase):
+
+    def test_norm_faithful(self):
+        """Test the norm_faithful function."""
+        a = np.array([1.0, 2.0, 3.0])
+        res = ac_utils.norm_faithful(a)
+        self.assertAlmostEquals(np.linalg.norm(a), res, places=15)
+
+    def test_sqrt_faithful(self):
+        """Test the sqrt_faithful function."""
+        a = 10.0
+        res = ac_utils._acc_sqrt(a,0.0)
+        self.assertAlmostEquals(np.sqrt(a), res, places=15)
+
+    def test_two_square(self):
+        """Test the _two_square function."""
+        a = 10.0
+        res = ac_utils._two_square(a)
+        self.assertAlmostEquals(a*a, res[0], places=15)
+

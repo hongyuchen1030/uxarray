@@ -1,4 +1,5 @@
 from gmpy2 import mpfr, fmms
+import gmpy2
 import numpy as np
 from uxarray.exact_computation.utils import set_global_precision, mp_cross
 from uxarray.grid.coordinates import normalize_in_place
@@ -148,16 +149,21 @@ def long_gca_gca_intersection():
 
 
 def calculate_rel_error():
+    set_global_precision(53)
     u = mpfr(np.finfo(np.float64).eps)
-    term_1 = (mpfr('1.0') + mpfr('9.0') * u) / (mpfr('1.0') + mpfr('2.5') * u)
-    term_2 = (mpfr('1.0') + u - 2 * u ** 2)
+    v_nonorm = mpfr('1.0') + mpfr('9.0') * u
+    v_norm = mpfr('1.0') + (mpfr('10.0') * u/(mpfr('1.0') + u))
+    term_1 = v_nonorm/v_norm
+    term_2 = (mpfr('1.0') + u - mpfr('2.0') * u ** mpfr('2.0'))
     rel_err = abs(term_1 * term_2 - mpfr('1.0'))
+    ratio = rel_err / u
     print("Final relative error bound: ", rel_err)
 
 
+
 if __name__ == "__main__":
-    # fma_cross_exp()
-    naive_cross_exp()
-    # calculate_rel_error()
-    # closed_gca_gca_intersection()
-    long_gca_gca_intersection()
+    # # fma_cross_exp()
+    # naive_cross_exp()
+    calculate_rel_error()
+    # # closed_gca_gca_intersection()
+    # long_gca_gca_intersection()

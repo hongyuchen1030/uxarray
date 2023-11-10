@@ -112,6 +112,53 @@ def dot_fma(v1, v2):
 
     return s + c
 
+def norm_faithful(x):
+    return normL(x)
+
+
+def normG(x):
+    S = 0
+    s = 0
+    for x_i in x:
+        P, p = _two_prod_fma(x_i, x_i)
+        H, h = _two_sum(S, P)
+        c = s + p
+        d = h + c
+        S, s = _fast_two_sum(H, d)
+    res = _acc_sqrt(S, s)
+    return res
+
+def normL(x):
+    P, p = _two_square(x)
+    S, s = _two_sum(P[0], P[1])
+    for i in range(2, len(x)):
+        H, h = _two_sum(S, P[i])
+        S, s = _two_sum(H, s + h)
+    sump = sum(p)
+    H, h = _two_sum(S, sump)
+    S, s = _fast_two_sum(H, s + h)
+    res = _acc_sqrt(S, s)
+    return res
+def _two_square(Aa):
+    P = Aa * Aa
+    A, a = _split(Aa)
+    p = a * a - ((P - A * A) - 2 * a *A)
+    return P,p
+
+def _acc_sqrt(T,t):
+    P = np.sqrt(T)
+    H,h = _two_square(P)
+    r = (T - H) - h
+    r = t + r
+    p = r / (2 * P)
+    res = P + p
+    return res
+
+def _split(a):
+    y = (2 ** 27 + 1) * a
+    x = y - (y - a)
+    y = a - x
+    return x, y
 
 def _two_prod_fma(a, b):
     """
