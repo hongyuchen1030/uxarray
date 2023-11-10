@@ -1,9 +1,10 @@
 import numpy as np
 from uxarray.constants import ERROR_TOLERANCE
-from uxarray.grid.utils import cross_fma, _newton_raphson_solver_for_gca_constLat, _one_var_newton_raphson_solver_for_gca_constLat
-from uxarray.grid.lines import point_within_gca
+from uxarray.grid.utils import _newton_raphson_solver_for_gca_constLat
+from uxarray.grid.arcs import point_within_gca
 import platform
 import warnings
+from uxarray.utils.computing import cross_fma
 
 
 def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
@@ -66,6 +67,7 @@ def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
 
         # Raise a warning for windows users
         if platform.system() == "Windows":
+
             warnings.warn(
                 "The C/C++ implementation of FMA in MS Windows is reportedly broken. Use with care. (bug report: "
                 "https://bugs.python.org/msg312480)"
@@ -144,14 +146,28 @@ def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False, verbose=Fa
     """
     constZ = np.sin(constLat)
     x1, x2 = gca_cart
-    n = cross_fma(x1, x2)
+
+    if fma_disabled:
+        n = np.cross(x1, x2)
+
+    else:
+        # Raise a warning for Windows users
+        if platform.system() == "Windows":
+
+            warnings.warn(
+                "The C/C++ implementation of FMA in MS Windows is reportedly broken. Use with care. (bug report: "
+                "https://bugs.python.org/msg312480)"
+                "The single rounding cannot be guaranteed, hence the relative error bound of 3u cannot be guaranteed."
+            )
+        n = cross_fma(x1, x2)
+
     nx, ny, nz = n
 
-    s_tilde = np.sqrt(nx ** 2 + ny ** 2 - np.linalg.norm(n) ** 2 * constZ ** 2)
-    p1_x = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * nx * nz + s_tilde * ny)
-    p2_x = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * nx * nz - s_tilde * ny)
-    p1_y = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * ny * nz - s_tilde * nx)
-    p2_y = -(1.0 / (nx ** 2 + ny ** 2)) * (constZ * ny * nz + s_tilde * nx)
+    s_tilde = np.sqrt(nx**2 + ny**2 - np.linalg.norm(n)**2 * constZ**2)
+    p1_x = -(1.0 / (nx**2 + ny**2)) * (constZ * nx * nz + s_tilde * ny)
+    p2_x = -(1.0 / (nx**2 + ny**2)) * (constZ * nx * nz - s_tilde * ny)
+    p1_y = -(1.0 / (nx**2 + ny**2)) * (constZ * ny * nz - s_tilde * nx)
+    p2_y = -(1.0 / (nx**2 + ny**2)) * (constZ * ny * nz + s_tilde * nx)
 
     p1 = np.array([p1_x, p1_y, constZ])
     p2 = np.array([p2_x, p2_y, constZ])
@@ -159,10 +175,15 @@ def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False, verbose=Fa
     # Now test which intersection point is within the GCA range
     res = np.array([])
     if point_within_gca(p1, gca_cart):
-        converged_pt = _one_var_newton_raphson_solver_for_gca_constLat(p1, gca_cart, verbose=verbose)
-        return converged_pt
+        converged_pt = _newton_raphson_solver_for_gca_constLat(p1,
+                                                               gca_cart,
+                                                               verbose=verbose)
     elif point_within_gca(p2, gca_cart):
-        converged_pt = _one_var_newton_raphson_solver_for_gca_constLat(p2, gca_cart, verbose=verbose)
-        return converged_pt
+        converged_pt = _newton_raphson_solver_for_gca_constLat(p2,
+                                                               gca_cart,
+                                                               verbose=verbose)
+    else:
+        converged_pt = np.array([])
+    return converged_pt
 
     return res
