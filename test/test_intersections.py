@@ -110,3 +110,5 @@ class TestGCAconstLatIntersection(TestCase):
             np.allclose(res_lonlat_rad,
                         np.array([np.deg2rad(170.0),
                                   np.deg2rad(60.0)])))
+
+

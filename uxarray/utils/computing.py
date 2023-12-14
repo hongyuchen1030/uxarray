@@ -104,6 +104,26 @@ def dot_fma(v1, v2):
     if len(v1) != len(v2):
         raise ValueError("Input vectors must be of the same length")
 
+    # if not np.all(np.sign(v1) == np.sign(v2)):
+    #     # If they have different signs, then because the natrue of the dot_FMA, we can only calculate the condition
+    #     # number of the dot product Up to sqrt(u) precision. Therefore, if the condition number is too large,
+    #     # we cannot proceed without introducing the multiprecision library
+    #     # raise Warning(
+    #     #     "Since the condition number of the dot product is large, the relative error of the result will be bounded by u + " + len(
+    #     #         v1) + "^2*u^1.5")
+    #
+    #     dot_product_precision_threshold = np.ceil(0.5 * np.finfo(np.float64).eps)
+    #     # The condition number of the dot product is too large for operating in floating point
+    #     if np.abs(dot_fma(v1, v2)) < dot_product_precision_threshold:
+    #         # raise a warning that the faithfulness of the result is not guaranteed
+    #         raise Warning("The result of the dot product is not guaranteed and may be inaccurate")
+    #         import gmpy2
+    #         # Now calculate the condition number of the dot product using the multiprecision library
+    #         v1_mp = [gmpy2.mpfr(str(v1_i)) for v1_i in v1]
+    #         v2_mp = [gmpy2.mpfr(str(v2_i)) for v2_i in v2]
+    #
+    #         # First calculate the |v1| dot |v2|
+            
     s, c = _two_prod_fma(v1[0], v2[0])
     for i in range(1, len(v1)):
         p, pi = _two_prod_fma(v1[i], v2[i])
@@ -297,3 +317,47 @@ def _fast_two_sum(a, b):
 
     else:
         raise ValueError("|a| must be greater than or equal to |b|.")
+
+def _comp_prod_FMA(vec):
+    import pyfma
+    p1 = vec[0]
+    e1 = 0.0
+    for i in range(1, len(vec)):
+        p_i, pi = _two_prod_fma(p1, vec[i])
+        ei = pyfma.fma(e1, vec[i], pi)
+        p1 = p_i
+        e1 = ei
+    res = p1 + e1
+    return res
+
+def _sum_of_squares_re(vec):
+    P, p = _two_square(vec)
+    S, s = _two_sum(P[0], P[1])
+    for i in range(2, len(vec)):
+        H, h = _two_sum(S, P[i])
+        S, s = _two_sum(H, s + h)
+    sump = sum(p)
+    H, h = _two_sum(S, sump)
+    S, s = _fast_two_sum(H, s + h)
+    return S + s
+
+
+def _vec_sum(p):
+    # Initialize the first terms of pi and sigma
+    pi_1 = p[0]  # π1 ← p1
+    sigma_i1 = 0   # σ1 ← 0
+
+    # Iterate over the vector starting from the second element
+    for i in range(1, len(p)):
+        # Call TwoSum with the accumulated sum and the next element
+        pi, qi = _two_sum(pi_1, p[i])  # [πi, qi] ← TwoSum(πi−1, pi)
+        sigma_i = sigma_i1 + qi  # σi ← σi−1 + qi
+        pi_1 = pi  # Update pi_1 for the next iteration
+        sigma_i1 = sigma_i
+
+    # Sum the final πn and σn to get the result
+    res = pi_1 + sigma_i1  # res ← πn + σn
+    return res
+
+
+

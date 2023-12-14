@@ -6,6 +6,7 @@ from uxarray.constants import ERROR_TOLERANCE
 import gmpy2
 from gmpy2 import mpfr, fmms
 from uxarray.exact_computation.utils import convert_to_multiprecision, mp_cross, mp_norm, mp_dot
+from uxarray.utils.computing import cross_fma, dot_fma, norm_faithful
 
 def _to_list(obj):
     if not isinstance(obj, list):
@@ -235,7 +236,9 @@ def extreme_gca_latitude(gca_cart, extreme_type):
         raise ValueError("extreme_type must be either 'max' or 'min'")
 
     n1, n2 = gca_cart
-    dot_n1_n2 = np.dot(n1, n2)
+
+    # Check if the input GCR can be proceed with the floating point precision
+    dot_n1_n2 = dot_fma(n1, n2)
     denom = (n1[2] + n2[2]) * (dot_n1_n2 - 1.0)
     d_a_max = (n1[2] * dot_n1_n2 - n2[2]) / denom
 

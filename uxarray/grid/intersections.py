@@ -4,7 +4,7 @@ from uxarray.grid.utils import _newton_raphson_solver_for_gca_constLat
 from uxarray.grid.arcs import point_within_gca
 import platform
 import warnings
-from uxarray.utils.computing import cross_fma
+from uxarray.utils.computing import cross_fma, dot_fma, norm_faithful, _acc_sqrt, _two_prod_fma, _two_sum, _two_square, _comp_prod_FMA, _sum_of_squares_re
 
 
 def gca_gca_intersection(gca1_cart, gca2_cart, fma_disabled=False):
@@ -186,4 +186,20 @@ def gca_constLat_intersection(gca_cart, constLat, fma_disabled=False, verbose=Fa
         converged_pt = np.array([])
     return converged_pt
 
+    return res
+
+def gca_constLat_intersection_accurate(gca_cart, z0, fma_disabled=False, verbose=False):
+    import pyfma
+    x1, x2 = gca_cart
+    n = cross_fma(x1, x2)
+    nx, ny, nz = n
+    nx_sqr_ny_sqr = _sum_of_squares_re(np.array([nx, ny]))
+    z0_square, err1 = _two_square(z0)
+    norm_n_square = _sum_of_squares_re(np.array([nx, ny, nz]))
+    norm_n_square_z0, err2 = _two_prod_fma(norm_n_square, z0_square)
+    t1, t2 = _two_sum(nx_sqr_ny_sqr, -norm_n_square_z0)
+    s_tilde = _acc_sqrt(t1, t2)
+    three_prod = _comp_prod_FMA(np.array([z0, nx, nz]))
+    long_term = pyfma.fma(s_tilde, ny, three_prod)
+    res = -(1.0/nx_sqr_ny_sqr) * long_term
     return res
