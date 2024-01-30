@@ -227,7 +227,16 @@ def plot_comparison():
     plt.show()
 
 
-
+def calculate_s_tile_sqe():
+    u = mpfr(np.finfo(np.float64).eps)
+    two = mpfr('2.0')
+    six = mpfr('6.0')
+    one = mpfr('1.0')
+    eight = mpfr('8.0')
+    gamma_26 = ((two * u) / (one - two * u)) * ((six * u)/(one - six * u))
+    res = gamma_26 + u/eight + u/eight * gamma_26 + two * u  + two * u * gamma_26
+    u_cnt = res / u
+    pass
 
 
 if __name__ == "__main__":
@@ -273,7 +282,16 @@ if __name__ == "__main__":
     # calculate_delta_s_tilde()
     # accurate_constLat_GCA_Intersection()
     # naive_constLat_GCA_Intersection()
-    plot_comparison()
+    # plot_comparison()
+    u = mpfr(np.finfo(np.float64).eps)
+    two = mpfr('2.0')
+    six = mpfr('6.0')
+    one = mpfr('1.0')
+    eight = mpfr('8.0')
+    gamma_26 = ((two * u) / (one - two * u)) * ((six * u) / (one - six * u))
+    res = gamma_26 + u / eight + u / eight * gamma_26 + two * u + two * u * gamma_26
+    u_cnt = res / u
+    pass
 
 
 
