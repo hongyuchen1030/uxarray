@@ -288,9 +288,11 @@ if __name__ == "__main__":
     six = mpfr('6.0')
     one = mpfr('1.0')
     eight = mpfr('8.0')
-    gamma_26 = ((two * u) / (one - two * u)) * ((six * u) / (one - six * u))
-    res = gamma_26 + u / eight + u / eight * gamma_26 + two * u + two * u * gamma_26
-    u_cnt = res / u
+    four = mpfr('4.0')
+    five = mpfr('5.0')
+    rel_err = (one + u/(one + u))
+    ans = (mpfr('360.0') * u * u+ mpfr('57.5')*u + mpfr('12.0')) * (one + two * u/(one + u))
+    u_cnt = ans / u
     pass
 
 
