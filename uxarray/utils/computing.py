@@ -204,6 +204,12 @@ def _two_prod_fma(a, b):
     y = pyfma.fma(a, b, -x)
     return x, y
 
+def _two_sqaure_fma(a):
+    import pyfma
+    x = a * a
+    y = pyfma.fma(a, a, -x)
+    return x, y
+
 
 def _err_fmac(a, b, c):
     """
@@ -331,7 +337,7 @@ def _comp_prod_FMA(vec):
     return res
 
 def _sum_of_squares_re(vec):
-    P, p = _two_square(vec)
+    P, p = _two_sqaure_fma(vec)
     S, s = _two_sum(P[0], P[1])
     for i in range(2, len(vec)):
         H, h = _two_sum(S, P[i])
