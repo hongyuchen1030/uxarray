@@ -1,27 +1,26 @@
 .. currentmodule:: uxarray
 
 
-======================
-Supported Grid Formats
-======================
+===============================
+Supported Models & Grid Formats
+===============================
 
 Overview
 ========
 
-UXarray is written around the UGRID conventions, which is a standard for storing unstructured grid model data in the
-NetCDF file format. As of the most recent release, the following grid formats are supported:
-
+UXarray is written primarily around the UGRID conventions, which is a standard for storing unstructured grid model
+output in the NetCDF file format. While some models produce output in the UGRID conventions (e.g. FESOM2), many
+models have their own grid format (e.g. MPAS, ICON). Below is a list of support grid formats and models.
 
 * UGRID
 * MPAS
 * SCRIP
 * EXODUS
 * ESMF
-
-While each of these formats can be encoded in the UGRID conventions, the amount of information that is parsed from them
-varies. The following sections describes how each format is converted into the UGRID conventions and what variables
-are directly parsed.
-
+* GEOS CS
+* ICON
+* FESOM2
+* HEALPix
 
 UGRID
 =====
@@ -111,6 +110,61 @@ References
 * https://earthsystemmodeling.org/about/
 * https://earthsystemmodeling.org/docs/release/ESMF_8_0_1/ESMF_refdoc/node3.html#SECTION03028200000000000000
 
+GEOS CS
+=======
+
+The Goddard Earth Observing System (GEOS) Cube Sphere (CS) grid format is equidistant gnomonic cubed-sphere grid with
+6 identical faces that wrap a sphere, with some number of grid cells per face. For example, a C720 GEOS-CS grid has
+6 faces, each with 720x720 elements.
+
+References
+----------
+* https://gmao.gsfc.nasa.gov/gmaoftp/ops/GEOSIT_sample/doc/CS_Description_c180_v1.pdf
+
+
+ICON
+====
+The climate model ICON is the central research tool at the Max Planck Institute for Meteorology (MPI-M). CON, which
+obtains its name from the usage of spherical grids derived from the icosahedron (ICO) and the non-hydrostatic (N)
+dynamics, originated as a joint project of the MPI-M and the German Weather Service (Deutscher Wetterdienst, DWD)
+and has expanded to involve more development partners at the German Climate Computing Center (DKRZ),
+the Swiss Federal Institute of Technology (ETH) in Zurich and the Karlsruhe Institute of Technology (KIT).
+It includes component models for the atmosphere, the ocean and the land, as well as chemical and biogeochemical cycles,
+all implemented on the basis of common data structures and sharing the same efficient technical infrastructure.
+It is integrated and maintained by a group of experts for model development and application in the
+institute’s Scientific Computing Laboratory.
+
+References
+----------
+* https://mpimet.mpg.de/en/research/modeling
+* https://scivis2017.dkrz.de/hd-cp-2/en-icon_grid.pdf
+
+FESOM2
+======
+The Finite Volume Sea Ice-Ocean Model (FESOM2) is a Multi-resolution ocean general circulation
+model that solves the equations of motion describing the ocean and sea ice using finite-volume methods
+on unstructured computational grids. The model is developed and supported by researchers at the
+Alfred Wegener Institute, Helmholtz Centre for Polar and Marine Research (AWI), in Bremerhaven, Germany.
+
+References
+----------
+* https://fesom2.readthedocs.io/en/latest/index.html#
+
+HEALPix
+=======
+The Hierarchical Equal Area isoLatitude Pixelisation (HEALPix) algorithm is a method for the pixelisation of the
+2-sphere. It has three defining qualities.
+- The sphere is hierarchically tessellated into curvilinear quadrilaterals
+- Areas of all pixels at a given resolution are identical
+- Pixels are distributed on lines of constant latitude
+
+References
+----------
+* https://easy.gems.dkrz.de/Processing/healpix/index.html#hierarchical-healpix-output
+* https://healpix.sourceforge.io/
+* https://healpix.jpl.nasa.gov/
+* https://iopscience.iop.org/article/10.1086/427976
+
 Parsed Variables
 ================
 
@@ -157,6 +211,8 @@ Coordinates
        <th>SCRIP</th>
        <th>EXODUS</th>
        <th>ESMF</th>
+       <th>GEOS-CS</th>
+       <th>ICON</th>
      </tr>
      <tr>
        <td>node_latlon</td>
@@ -164,6 +220,8 @@ Coordinates
        <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
        <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
+       <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
      </tr>
      <tr>
@@ -173,6 +231,9 @@ Coordinates
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
+
      </tr>
      <tr>
        <td>face_latlon</td>
@@ -180,6 +241,8 @@ Coordinates
        <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
        <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
+       <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
      </tr>
      <tr>
@@ -189,6 +252,8 @@ Coordinates
        <td class="no-cell">No</td>
        <td class="yes-cell">Yes</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
      <tr>
        <td>edge_xyz</td>
@@ -197,6 +262,8 @@ Coordinates
        <td class="no-cell">No</td>
        <td class="yes-cell">Yes</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
      <tr>
        <td>face_xyz</td>
@@ -205,6 +272,8 @@ Coordinates
        <td class="no-cell">No</td>
        <td class="yes-cell">Yes</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
    </table>
 
@@ -242,9 +311,13 @@ Connectivity
        <th>SCRIP</th>
        <th>EXODUS</th>
        <th>ESMF</th>
+       <th>GEOS-CS</th>
+       <th>ICON</th>
      </tr>
      <tr>
        <td>face_node</td>
+       <td class="yes-cell">Yes</td>
+       <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
@@ -258,14 +331,18 @@ Connectivity
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
      <tr>
        <td>face_face</td>
+       <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
      <tr>
        <td>edge_node</td>
@@ -274,9 +351,13 @@ Connectivity
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
      <tr>
        <td>edge_edge</td>
+       <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
@@ -290,10 +371,14 @@ Connectivity
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="yes-cell">Yes</td>
      </tr>
      <tr>
        <td>node_node</td>
        <td class="yes-cell">Yes</td>
+       <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
@@ -306,11 +391,15 @@ Connectivity
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
      </tr>
      <tr>
        <td>node_face</td>
        <td class="yes-cell">Yes</td>
        <td class="yes-cell">Yes</td>
+       <td class="no-cell">No</td>
+       <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>
        <td class="no-cell">No</td>

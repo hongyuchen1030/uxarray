@@ -1,7 +1,6 @@
 import numpy as np
 import xarray as xr
 
-from scipy import sparse
 
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE
 from uxarray.conventions import ugrid
@@ -59,65 +58,66 @@ def close_face_nodes(face_node_connectivity, n_face, n_max_face_nodes):
 
 
 def _replace_fill_values(grid_var, original_fill, new_fill, new_dtype=None):
-    """Replaces all instances of the the current fill value (``original_fill``)
-    in (``grid_var``) with (``new_fill``) and converts to the dtype defined by
+    """Replaces all instances of the current fill value (``original_fill``) in
+    (``grid_var``) with (``new_fill``) and converts to the dtype defined by
     (``new_dtype``)
 
     Parameters
     ----------
-    grid_var : np.ndarray
-        grid variable to be modified
+    grid_var : xr.DataArray
+        Grid variable to be modified
     original_fill : constant
-        original fill value used in (``grid_var``)
+        Original fill value used in (``grid_var``)
     new_fill : constant
-        new fill value to be used in (``grid_var``)
+        New fill value to be used in (``grid_var``)
     new_dtype : np.dtype, optional
-        new data type to convert (``grid_var``) to
+        New data type to convert (``grid_var``) to
 
     Returns
-    ----------
-    grid_var : xarray.Dataset
-        Input Dataset with correct fill value and dtype
+    -------
+    grid_var : xr.DataArray
+        Modified DataArray with updated fill values and dtype
     """
 
-    # locations of fill values
+    # Identify fill value locations
     if original_fill is not None and np.isnan(original_fill):
-        fill_val_idx = np.isnan(grid_var)
+        # For NaN fill values
+        fill_val_idx = grid_var.isnull()
+        # Temporarily replace NaNs with a placeholder if dtype conversion is needed
+        if new_dtype is not None and np.issubdtype(new_dtype, np.floating):
+            grid_var = grid_var.fillna(0.0)
+        else:
+            # Choose an appropriate placeholder for non-floating types
+            grid_var = grid_var.fillna(new_fill)
     else:
+        # For non-NaN fill values
         fill_val_idx = grid_var == original_fill
 
-    # convert to new data type
-    if new_dtype != grid_var.dtype and new_dtype is not None:
+    # Convert to the new data type if specified
+    if new_dtype is not None and new_dtype != grid_var.dtype:
         grid_var = grid_var.astype(new_dtype)
 
-    # ensure fill value can be represented with current integer data type
-    if np.issubdtype(new_dtype, np.integer):
-        int_min = np.iinfo(grid_var.dtype).min
-        int_max = np.iinfo(grid_var.dtype).max
-        # ensure new_fill is in range [int_min, int_max]
-        if new_fill < int_min or new_fill > int_max:
-            raise ValueError(
-                f"New fill value: {new_fill} not representable by"
-                f" integer dtype: {grid_var.dtype}"
-            )
+    # Validate that the new_fill can be represented in the new_dtype
+    if new_dtype is not None:
+        if np.issubdtype(new_dtype, np.integer):
+            int_min = np.iinfo(new_dtype).min
+            int_max = np.iinfo(new_dtype).max
+            if not (int_min <= new_fill <= int_max):
+                raise ValueError(
+                    f"New fill value: {new_fill} not representable by integer dtype: {new_dtype}"
+                )
+        elif np.issubdtype(new_dtype, np.floating):
+            if not (
+                np.isnan(new_fill)
+                or (np.finfo(new_dtype).min <= new_fill <= np.finfo(new_dtype).max)
+            ):
+                raise ValueError(
+                    f"New fill value: {new_fill} not representable by float dtype: {new_dtype}"
+                )
+        else:
+            raise ValueError(f"Data type {new_dtype} not supported for grid variables")
 
-    # ensure non-nan fill value can be represented with current float data type
-    elif np.issubdtype(new_dtype, np.floating) and not np.isnan(new_fill):
-        float_min = np.finfo(grid_var.dtype).min
-        float_max = np.finfo(grid_var.dtype).max
-        # ensure new_fill is in range [float_min, float_max]
-        if new_fill < float_min or new_fill > float_max:
-            raise ValueError(
-                f"New fill value: {new_fill} not representable by"
-                f" float dtype: {grid_var.dtype}"
-            )
-    else:
-        raise ValueError(
-            f"Data type {grid_var.dtype} not supported" f"for grid variables"
-        )
-
-    # replace all zeros with a fill value
-    grid_var[fill_val_idx] = new_fill
+    grid_var = grid_var.where(~fill_val_idx, new_fill)
 
     return grid_var
 
@@ -143,17 +143,19 @@ def _populate_n_nodes_per_face(grid):
     )
 
 
+@njit(cache=True)
 def _build_n_nodes_per_face(face_nodes, n_face, n_max_face_nodes):
     """Constructs ``n_nodes_per_face``, which contains the number of non-fill-
     value nodes for each face in ``face_node_connectivity``"""
 
-    # padding to shape [n_face, n_max_face_nodes + 1]
-    closed = np.ones((n_face, n_max_face_nodes + 1), dtype=INT_DTYPE) * INT_FILL_VALUE
-
-    closed[:, :-1] = face_nodes.copy()
-
-    n_nodes_per_face = np.argmax(closed == INT_FILL_VALUE, axis=1)
-
+    n_face, n_max_face_nodes = face_nodes.shape
+    n_nodes_per_face = np.empty(n_face, dtype=INT_DTYPE)
+    for i in range(n_face):
+        c = 0
+        for j in range(n_max_face_nodes):
+            if face_nodes[i, j] != INT_FILL_VALUE:
+                c += 1
+        n_nodes_per_face[i] = c
     return n_nodes_per_face
 
 
@@ -251,7 +253,7 @@ def _populate_edge_face_connectivity(grid):
     )
 
 
-@njit
+@njit(cache=True)
 def _build_edge_face_connectivity(face_edges, n_nodes_per_face, n_edge):
     """Helper for (``edge_face_connectivity``) construction."""
     edge_faces = np.ones(shape=(n_edge, 2), dtype=face_edges.dtype) * INT_FILL_VALUE
@@ -329,48 +331,27 @@ def _build_node_faces_connectivity(face_nodes, n_node):
     RuntimeError
         If the Mesh object does not contain a 'face_node_connectivity' variable.
     """
-    # First we need to build a matrix such that: the row indices are face indexes and the column indices are node
-    # indexes (similar to an adjacency matrix)
-    face_indices, node_indices, non_filled_element_flags = _face_nodes_to_sparse_matrix(
-        face_nodes
+
+    node_face_conn = {node_i: [] for node_i in range(n_node)}
+    for face_i, face_nodes in enumerate(face_nodes):
+        for node_i in face_nodes:
+            if node_i != INT_FILL_VALUE:
+                node_face_conn[node_i].append(face_i)
+
+    n_max_node_faces = -1
+    for face_indicies in node_face_conn.values():
+        if len(face_indicies) > n_max_node_faces:
+            n_max_node_faces = len(face_indicies)
+
+    node_face_connectivity = np.full(
+        (n_node, n_max_node_faces), INT_FILL_VALUE, dtype=INT_DTYPE
     )
-    coo_matrix = sparse.coo_matrix(
-        (non_filled_element_flags, (node_indices, face_indices))
-    )
-    csr_matrix = coo_matrix.tocsr()
-    # get the row and column indices of the non-zero elements
-    rows, cols = csr_matrix.nonzero()
-    # Find the frequency of each face to determine the maximum number of faces per node
-    freq = np.bincount(rows)
-    nMaxNumFacesPerNode = freq.max()
 
-    node_face_connectivity = [[]] * n_node
+    for node_idx, face_indices in enumerate(node_face_conn.values()):
+        n_faces = len(face_indices)
+        node_face_connectivity[node_idx, 0:n_faces] = face_indices
 
-    # find the indices where the array changes value
-    change_indices = np.where(np.diff(rows) != 0)[0] + 1
-
-    # split the array at the change indices to get subarrays of consecutive same elements
-    subarrays = np.split(rows, change_indices)
-
-    # get the start and end indices for each subarray
-    start_indices = np.cumsum([0] + [len(subarray) for subarray in subarrays[:-1]])
-    end_indices = np.cumsum([len(subarray) for subarray in subarrays]) - 1
-
-    for node_index in range(n_node):
-        node_face_connectivity[node_index] = cols[
-            start_indices[node_index] : end_indices[node_index] + 1
-        ]
-        if len(node_face_connectivity[node_index]) < nMaxNumFacesPerNode:
-            node_face_connectivity[node_index] = np.append(
-                node_face_connectivity[node_index],
-                np.full(
-                    nMaxNumFacesPerNode - len(node_face_connectivity[node_index]),
-                    INT_FILL_VALUE,
-                    dtype=INT_DTYPE,
-                ),
-            )
-
-    return node_face_connectivity, nMaxNumFacesPerNode
+    return node_face_connectivity, n_max_node_faces
 
 
 def _face_nodes_to_sparse_matrix(dense_matrix: np.ndarray) -> tuple:
@@ -378,6 +359,7 @@ def _face_nodes_to_sparse_matrix(dense_matrix: np.ndarray) -> tuple:
     where the locations of non fill-value entries are stored using COO
     (coordinate list) standard. It is represented by three arrays: row indices,
     column indices, and non-filled element flags.
+
     Parameters
     ----------
     dense_matrix : np.ndarray
@@ -395,11 +377,12 @@ def _face_nodes_to_sparse_matrix(dense_matrix: np.ndarray) -> tuple:
             index.
     Example
     -------
-    >>> face_nodes_conn = np.array([[3, 4, 5, INT_FILL_VALUE],
-    ...                             [3, 0, 2, 5],
-    ...                             [3, 4, 1, 0],
-    ...                             [0, 1, 2, -999]])
-    >>> face_indices, nodes_indices, non_filled_flag = _face_nodes_to_sparse_matrix(face_nodes_conn)
+    >>> face_nodes_conn = np.array(
+    ...     [[3, 4, 5, INT_FILL_VALUE], [3, 0, 2, 5], [3, 4, 1, 0], [0, 1, 2, -999]]
+    ... )
+    >>> face_indices, nodes_indices, non_filled_flag = _face_nodes_to_sparse_matrix(
+    ...     face_nodes_conn
+    ... )
     >>> face_indices = np.array([0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3])
     >>> nodes_indices = np.array([3, 4, 5, 3, 0, 2, 5, 3, 4, 1, 0, 0, 1, 2])
     >>> non_filled_flag = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
@@ -411,3 +394,64 @@ def _face_nodes_to_sparse_matrix(dense_matrix: np.ndarray) -> tuple:
     node_indices = flattened_matrix[valid_node_mask]
     non_filled_element_flags = np.ones(len(node_indices))
     return face_indices, node_indices, non_filled_element_flags
+
+
+def get_face_node_partitions(n_nodes_per_face):
+    """Returns the indices of how to partition `face_node_connectivity` by
+    element size."""
+
+    # sort number of nodes per face in ascending order
+    n_nodes_per_face_sorted_ind = np.argsort(n_nodes_per_face)
+
+    # unique element sizes and their respective counts
+    element_sizes, size_counts = np.unique(n_nodes_per_face, return_counts=True)
+    element_sizes_sorted_ind = np.argsort(element_sizes)
+
+    # sort elements by their size
+    element_sizes = element_sizes[element_sizes_sorted_ind]
+    size_counts = size_counts[element_sizes_sorted_ind]
+
+    # find the index at the point where the geometry changes from one shape to another
+    change_ind = np.cumsum(size_counts)
+    change_ind = np.concatenate((np.array([0]), change_ind))
+
+    return change_ind, n_nodes_per_face_sorted_ind, element_sizes, size_counts
+
+
+def _populate_face_face_connectivity(grid):
+    """Constructs the UGRID connectivity variable (``face_face_connectivity``)
+    and stores it within the internal (``Grid._ds``) and through the attribute
+    (``Grid.face_face_connectivity``)."""
+    face_face = _build_face_face_connectivity(grid)
+
+    grid._ds["face_face_connectivity"] = xr.DataArray(
+        data=face_face,
+        dims=ugrid.FACE_FACE_CONNECTIVITY_DIMS,
+        attrs=ugrid.FACE_FACE_CONNECTIVITY_ATTRS,
+    )
+
+
+def _build_face_face_connectivity(grid):
+    """Returns face-face connectivity."""
+
+    # Dictionary to store each faces adjacent faces
+    face_neighbors = {i: [] for i in range(grid.n_face)}
+
+    # Loop through each edge_face and add to the dictionary every face that shares an edge
+    for edge_face in grid.edge_face_connectivity.values:
+        face1, face2 = edge_face
+        if face1 != INT_FILL_VALUE and face2 != INT_FILL_VALUE:
+            # Append to each face's dictionary index the opposite face index
+            face_neighbors[face1].append(face2)
+            face_neighbors[face2].append(face1)
+
+    # Convert to an array and pad it with fill values
+    face_face_conn = list(face_neighbors.values())
+    face_face_connectivity = [
+        np.pad(
+            arr, (0, grid.n_max_face_edges - len(arr)), constant_values=INT_FILL_VALUE
+        )
+        for arr in face_face_conn
+    ]
+
+    return face_face_connectivity

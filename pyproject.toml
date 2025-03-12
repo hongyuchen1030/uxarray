@@ -2,24 +2,22 @@
 classifiers=[
   "Operating System :: OS Independent",
   "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
-  'Operating System :: Microsoft :: Windows',
-  'Operating System :: Unix',
-  'Operating System :: MacOS',
-  "Topic :: Scientific/Engineering",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
 ]
 
 dynamic = ["version"]
-keywords = ["unstructured grids"]
-description = "Xarray-styled package for reading and directly operating on unstructured grid datasets following UGRID conventions"
+keywords = ["unstructured grids", "xarray", "ugrid", "mpas", "exodus", "scrip", "fesom", "icon", "esmf"]
+description = "Xarray extension for unstructured climate and global weather data analysis and visualization."
 license = {file = "LICENSE"}
 name = "uxarray"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 # minimal dependencies start
 dependencies = [
@@ -34,21 +32,25 @@ dependencies = [
   "netcdf4",
   "numba",
   "numpy",
-  "pandas<2.1.0",
+  "pandas",
   "pyarrow",
   "requests",
   "scikit-learn",
   "scipy",
   "shapely",
   "spatialpandas",
+  "geopandas",
   "xarray",
+  "hvplot",
+  "healpix",
+  "polars",
 ]
 # minimal dependencies end
 
 [project.optional-dependencies]
 complete = ["uxarray[math, dev]"]
-math = ['gmpy2', 'pyfma']
-dev = ['pathlib', 'pre_commit', 'pytest', 'pytest-cov', 'ruff']
+math = ['gmpy2']
+dev = ['pathlib', 'pre_commit', 'pytest', 'pytest-cov', 'ruff', 'asv']
 
 [project.urls]
 Documentation = "https://uxarray.readthedocs.io/"
@@ -63,8 +65,8 @@ requires = [
   "setuptools-scm>=8",
 ]
 
-[tool.setuptools.packages]
-find = {}
+[tool.setuptools]
+packages = ["uxarray"]
 
 [tool.setuptools_scm]
 fallback_version = "9999"
@@ -72,9 +74,10 @@ fallback_version = "9999"
 [tool.ruff]
 extend-exclude = ["test","benchmarks"]
 
-[tool.ruff.lint]
-ignore-init-module-imports = false
 
 [tool.ruff.lint.per-file-ignores]
 "docs/*" = ["E402", "F401"]
 "uxarray/plot/*" = ["E402", "F401"]
+
+[tool.ruff.format]
+docstring-code-format = true

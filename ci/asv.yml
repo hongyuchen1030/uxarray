@@ -7,15 +7,18 @@ dependencies:
   - dask
   - datashader
   - gmpy2
+  - geoviews
   - holoviews
   - matplotlib-base
   - matplotlib-inline
+  - healpix
   - netcdf4
   - numba
   - numpy
-  - pandas<2.1.0
+  - pandas
   - pathlib
   - pre_commit
+  - polars
   - pyarrow
   - pytest
   - pytest-cov
@@ -24,9 +27,11 @@ dependencies:
   - scipy
   - shapely
   - spatialpandas
+  - geopandas
   - xarray
+  - asv
+  - hvplot
   - pip:
     - antimeridian
-    - pyfma
-    - asv<0.6.2
+    - git+https://github.com/philipc2/pyfma.git # fix until https://github.com/nschloe/pyfma/pull/17 is merged
     - -e ../

@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: [ "3.11" ]
+        python-version: [ "3.12" ]
 
     steps:
       - name: Checkout
@@ -27,7 +27,7 @@ jobs:
           token: ${{ github.token }}
 
       - name: Set up environment
-        uses: mamba-org/setup-micromamba@v1
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: ci/environment.yml
           create-args: >-

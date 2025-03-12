@@ -11,11 +11,9 @@ def _read_ugrid(ds):
     """Parses an unstructured grid dataset and encodes it in the UGRID
     conventions."""
 
-    # Grid Topology
+    # Extract grid topology attributes
     grid_topology_name = list(ds.filter_by_attrs(cf_role="mesh_topology").keys())[0]
     ds = ds.rename({grid_topology_name: "grid_topology"})
-
-    # Coordinates
 
     # get the names of node_lon and node_lat
     node_lon_name, node_lat_name = ds["grid_topology"].node_coordinates.split()
@@ -24,20 +22,19 @@ def _read_ugrid(ds):
         node_lat_name: ugrid.NODE_COORDINATES[1],
     }
 
-    if "edge_coordinates" in ds["grid_topology"]:
+    if "edge_coordinates" in ds["grid_topology"].attrs:
         # get the names of edge_lon and edge_lat, if they exist
         edge_lon_name, edge_lat_name = ds["grid_topology"].edge_coordinates.split()
         coord_dict[edge_lon_name] = ugrid.EDGE_COORDINATES[0]
         coord_dict[edge_lat_name] = ugrid.EDGE_COORDINATES[1]
 
-    if "face_coordinates" in ds["grid_topology"]:
+    if "face_coordinates" in ds["grid_topology"].attrs:
         # get the names of face_lon and face_lat, if they exist
-        face_lon_name, face_lat_name = ds["grid_topology"].edge_coordinates.split()
+        face_lon_name, face_lat_name = ds["grid_topology"].face_coordinates.split()
         coord_dict[face_lon_name] = ugrid.FACE_COORDINATES[0]
         coord_dict[face_lat_name] = ugrid.FACE_COORDINATES[1]
 
     ds = ds.rename(coord_dict)
-    # Connectivity
 
     conn_dict = {}
     for conn_name in ugrid.CONNECTIVITY_NAMES:
@@ -56,24 +53,37 @@ def _read_ugrid(ds):
     dim_dict = {}
 
     # Rename Core Dims (node, edge, face)
-    if "node_dimension" in ds["grid_topology"]:
+    if "node_dimension" in ds["grid_topology"].attrs:
         dim_dict[ds["grid_topology"].node_dimension] = ugrid.NODE_DIM
     else:
         dim_dict[ds["node_lon"].dims[0]] = ugrid.NODE_DIM
 
-    if "face_dimension" in ds["grid_topology"]:
+    if "face_dimension" in ds["grid_topology"].attrs:
         dim_dict[ds["grid_topology"].face_dimension] = ugrid.FACE_DIM
     else:
         dim_dict[ds["face_node_connectivity"].dims[0]] = ugrid.FACE_DIM
 
-    if "edge_dimension" in ds["grid_topology"]:
+    if "edge_dimension" in ds["grid_topology"].attrs:
         # edge dimension is not always provided
         dim_dict[ds["grid_topology"].edge_dimension] = ugrid.EDGE_DIM
     else:
         if "edge_lon" in ds:
             dim_dict[ds["edge_lon"].dims[0]] = ugrid.EDGE_DIM
 
+    for conn_name in conn_dict.values():
+        # Ensure grid dimension (i.e. 'n_face') is always the first dimension
+        da = ds[conn_name]
+        dims = da.dims
+
+        for grid_dim in dim_dict.keys():
+            if dims[1] == grid_dim:
+                ds[conn_name] = da.T
+
     dim_dict[ds["face_node_connectivity"].dims[1]] = ugrid.N_MAX_FACE_NODES_DIM
+
+    for dim in ds.dims:
+        if ds.sizes[dim] == 2:
+            dim_dict[dim] = "two"
 
     ds = ds.swap_dims(dim_dict)
 
@@ -89,7 +99,7 @@ def _encode_ugrid(ds):
 
     grid_topology = ugrid.BASE_GRID_TOPOLOGY_ATTRS
 
-    if "n_edge" in ds:
+    if "n_edge" in ds.dims:
         grid_topology["edge_dimension"] = "n_edge"
 
     if "face_lon" in ds:
@@ -118,27 +128,29 @@ def _standardize_connectivity(ds, conn_name):
     ----------
     ds : xarray.Dataset
         Input Dataset
+    conn_name : str
+        The name of the connectivity variable to standardize.
 
     Returns
-    ----------
+    -------
     ds : xarray.Dataset
-        Input Dataset with correct index variables
+        Input Dataset with standardized connectivity variable.
     """
 
-    # original connectivity
-    conn = ds[conn_name].values
+    # Extract the connectivity variable
+    conn = ds[conn_name]
 
-    # original fill value, if one exists
-    if "_FillValue" in ds[conn_name].attrs:
-        original_fv = ds[conn_name]._FillValue
-    elif np.isnan(ds[conn_name].values).any():
+    # Determine the original fill value
+    if "_FillValue" in conn.attrs:
+        original_fv = conn.attrs["_FillValue"]
+    elif conn.isnull().any():
         original_fv = np.nan
     else:
         original_fv = None
 
-    # if current dtype and fill value are not standardized
+    # Check if dtype or fill value needs to be standardized
     if conn.dtype != INT_DTYPE or original_fv != INT_FILL_VALUE:
-        # replace fill values and set correct dtype
+        # Replace fill values and set the correct dtype
         new_conn = _replace_fill_values(
             grid_var=conn,
             original_fill=original_fv,
@@ -146,15 +158,35 @@ def _standardize_connectivity(ds, conn_name):
             new_dtype=INT_DTYPE,
         )
 
-        if "start_index" in ds[conn_name].attrs:
-            new_conn -= INT_DTYPE(ds[conn_name].start_index)
+        # Check if 'start_index' attribute exists
+        if "start_index" in conn.attrs:
+            # Retrieve and convert 'start_index'
+            start_index = INT_DTYPE(conn.attrs["start_index"])
+
+            # Perform conditional subtraction using `.where()`
+            new_conn = new_conn.where(
+                new_conn == INT_FILL_VALUE, new_conn - start_index
+            )
         else:
-            new_conn -= INT_DTYPE(new_conn.min())
+            # Identify non-fill value indices
+            fill_value_indices = new_conn != INT_FILL_VALUE
 
-        # reassign data to use updated connectivity
-        ds[conn_name].data = new_conn
+            # Compute the minimum start_index from non-fill values
+            start_index = new_conn.where(fill_value_indices).min()
+            # .item()
 
-        # use new fill value
+            # Convert start_index to the desired integer dtype
+            start_index = INT_DTYPE(start_index)
+
+            # Perform conditional subtraction using `.where()`
+            new_conn = new_conn.where(
+                new_conn == INT_FILL_VALUE, new_conn - start_index
+            )
+
+        # Update the connectivity variable in the dataset
+        ds = ds.assign({conn_name: new_conn})
+
+        # Update the '_FillValue' attribute
         ds[conn_name].attrs["_FillValue"] = INT_FILL_VALUE
 
     return ds
@@ -162,8 +194,6 @@ def _standardize_connectivity(ds, conn_name):
 
 def _is_ugrid(ds):
     """Check mesh topology and dimension."""
-    # getkeys_filter_by_attribute(filepath, attr_name, attr_val)
-    # return type KeysView
     node_coords_dv = ds.filter_by_attrs(node_coordinates=lambda v: v is not None)
     face_conn_dv = ds.filter_by_attrs(face_node_connectivity=lambda v: v is not None)
     topo_dim_dv = ds.filter_by_attrs(topology_dimension=lambda v: v is not None)

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from uxarray.remap.nearest_neighbor import _nearest_neighbor_uxda
 from uxarray.remap.inverse_distance_weighted import (
@@ -7,13 +7,14 @@ from uxarray.remap.inverse_distance_weighted import (
 )
 
 if TYPE_CHECKING:
-    from uxarray.core.dataset import UxDataset
     from uxarray.core.dataarray import UxDataArray
 
 from uxarray.grid import Grid
 
 
 class UxDataArrayRemapAccessor:
+    """Remapping accessor for ``UxDataArray``"""
+
     def __init__(self, uxda: UxDataArray):
         self.uxda = uxda
 
@@ -30,40 +31,40 @@ class UxDataArrayRemapAccessor:
 
     def nearest_neighbor(
         self,
-        destination_obj: Union[Grid, UxDataArray, UxDataset],
-        remap_to: str = "nodes",
+        destination_grid: Grid,
+        remap_to: str = "face centers",
         coord_type: str = "spherical",
     ):
-        """Nearest Neighbor Remapping between a source (``UxDataArray``) and
-        destination.`.
+        """Nearest Neighbor Remapping between a source ``UxDataArray`` and
+        destination ``Grid``
 
         Parameters
         ---------
-        destination_obj : Grid, UxDataArray, UxDataset
-            Destination for remapping
+        destination_grid : Grid
+            Destination Grid for remapping
         remap_to : str, default="nodes"
             Location of where to map data, either "nodes" or "face centers"
         coord_type : str, default="spherical"
             Indicates whether to remap using on spherical or cartesian coordinates
         """
 
-        return _nearest_neighbor_uxda(self.uxda, destination_obj, remap_to, coord_type)
+        return _nearest_neighbor_uxda(self.uxda, destination_grid, remap_to, coord_type)
 
     def inverse_distance_weighted(
         self,
-        destination_obj: Union[Grid, UxDataArray, UxDataset],
-        remap_to: str = "nodes",
+        destination_grid: Grid,
+        remap_to: str = "face centers",
         coord_type: str = "spherical",
         power=2,
         k=8,
     ):
-        """Inverse Distance Weighted Remapping between a source
-        (``UxDataArray``) and destination.`.
+        """Inverse Distance Weighted Remapping between a source ``UxDataArray``
+        and destination ``Grid``
 
         Parameters
         ---------
-        destination_obj : Grid, UxDataArray, UxDataset
-            Destination for remapping
+        destination_grid : Grid
+            Destination Grid for remapping
         remap_to : str, default="nodes"
             Location of where to map data, either "nodes" or "face centers"
         coord_type : str, default="spherical"
@@ -76,5 +77,5 @@ class UxDataArrayRemapAccessor:
         """
 
         return _inverse_distance_weighted_remap_uxda(
-            self.uxda, destination_obj, remap_to, coord_type, power, k
+            self.uxda, destination_grid, remap_to, coord_type, power, k
         )

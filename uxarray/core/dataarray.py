@@ -1,37 +1,43 @@
 from __future__ import annotations
 
-import xarray as xr
+import warnings
+from html import escape
+from typing import Hashable, Literal, Optional, TYPE_CHECKING, Any
+from warnings import warn
+
+import cartopy.crs as ccrs
 import numpy as np
+import xarray as xr
 
-from typing import TYPE_CHECKING, Optional, Union, Hashable
-
+import uxarray
+from uxarray.core.aggregation import _uxda_grid_aggregate
+from uxarray.core.gradient import (
+    _calculate_edge_face_difference,
+    _calculate_edge_node_difference,
+    _calculate_grad_on_edge_from_faces,
+)
+from uxarray.core.utils import _map_dims_to_ugrid
+from uxarray.core.zonal import _compute_non_conservative_zonal_mean
+from uxarray.cross_sections import UxDataArrayCrossSectionAccessor
+from uxarray.formatting_html import array_repr
 from uxarray.grid import Grid
-import uxarray.core.dataset
+from uxarray.grid.dual import construct_dual
+from uxarray.grid.validation import _check_duplicate_nodes_indices
+from uxarray.plot.accessor import UxDataArrayPlotAccessor
+from uxarray.remap import UxDataArrayRemapAccessor
+from uxarray.subset import DataArraySubsetAccessor
+
+from xarray.core.options import OPTIONS
+from xarray.core.utils import UncachedAccessor
+from xarray.core import dtypes
 
 if TYPE_CHECKING:
     from uxarray.core.dataset import UxDataset
 
-from xarray.core.utils import UncachedAccessor
-
-from warnings import warn
-
-from uxarray.core.gradient import (
-    _calculate_grad_on_edge_from_faces,
-    _calculate_edge_face_difference,
-    _calculate_edge_node_difference,
-)
-
-from uxarray.plot.accessor import UxDataArrayPlotAccessor
-from uxarray.subset import DataArraySubsetAccessor
-from uxarray.remap import UxDataArrayRemapAccessor
-
-import warnings
-
 
 class UxDataArray(xr.DataArray):
-    """N-dimensional ``xarray.DataArray``-like array. Inherits from
-    ``xarray.DataArray`` and has its own unstructured grid-aware array
-    operators and attributes through the ``uxgrid`` accessor.
+    """Grid informed ``xarray.DataArray`` with an attached ``Grid`` accessor
+    and grid-specific functionality.
 
     Parameters
     ----------
@@ -73,6 +79,12 @@ class UxDataArray(xr.DataArray):
     plot = UncachedAccessor(UxDataArrayPlotAccessor)
     subset = UncachedAccessor(DataArraySubsetAccessor)
     remap = UncachedAccessor(UxDataArrayRemapAccessor)
+    cross_section = UncachedAccessor(UxDataArrayCrossSectionAccessor)
+
+    def _repr_html_(self) -> str:
+        if OPTIONS["display_style"] == "text":
+            return f"<pre>{escape(repr(self))}</pre>"
+        return array_repr(self)
 
     @classmethod
     def _construct_direct(cls, *args, **kwargs):
@@ -109,14 +121,9 @@ class UxDataArray(xr.DataArray):
 
     @property
     def uxgrid(self):
-        """``uxarray.Grid`` property for ``uxarray.UxDataArray`` to make it
-        unstructured grid-aware.
+        """Linked ``Grid`` representing to the unstructured grid the data
+        resides on."""
 
-        Examples
-        --------
-        uxds = ux.open_dataset(grid_path, data_path)
-        uxds.<variable_name>.uxgrid
-        """
         return self._uxgrid
 
     # a setter function
@@ -124,24 +131,63 @@ class UxDataArray(xr.DataArray):
     def uxgrid(self, ugrid_obj):
         self._uxgrid = ugrid_obj
 
-    def to_geodataframe(self, override=False, cache=True, exclude_antimeridian=False):
-        """Constructs a ``spatialpandas.GeoDataFrame`` with a "geometry"
-        column, containing a collection of Shapely Polygons or MultiPolygons
-        representing the geometry of the unstructured grid, and a data column
-        representing a 1D slice of data mapped to each Polygon.
+    @property
+    def data_mapping(self):
+        """Returns which unstructured grid a data variable is mapped to."""
+        if self._face_centered():
+            return "faces"
+        elif self._edge_centered():
+            return "edges"
+        elif self._node_centered():
+            return "nodes"
+        else:
+            return None
+
+    def to_geodataframe(
+        self,
+        periodic_elements: Optional[str] = "exclude",
+        projection: Optional[ccrs.Projection] = None,
+        cache: Optional[bool] = True,
+        override: Optional[bool] = False,
+        engine: Optional[str] = "spatialpandas",
+        exclude_antimeridian: Optional[bool] = None,
+        **kwargs,
+    ):
+        """Constructs a ``GeoDataFrame`` consisting of polygons representing
+        the faces of the current ``Grid`` with a face-centered data variable
+        mapped to them.
+
+        Periodic polygons (i.e. those that cross the antimeridian) can be handled using the ``periodic_elements``
+        parameter. Setting ``periodic_elements='split'`` will split each periodic polygon along the antimeridian.
+        Setting ``periodic_elements='exclude'`` will exclude any periodic polygon from the computed GeoDataFrame.
+        Setting ``periodic_elements='ignore'`` will compute the GeoDataFrame assuming no corrections are needed, which
+        is best used for grids that do not initially include any periodic polygons.
 
         Parameters
-        override: bool
-            Flag to recompute the ``GeoDataFrame`` stored under the ``uxgrid`` if one is already cached
-        cache: bool
-            Flag to indicate if the computed ``GeoDataFrame`` stored under the ``uxgrid`` accessor should be cached
-        exclude_antimeridian: bool, Optional
-            Selects whether to exclude any face that contains an edge that crosses the antimeridian
+        ----------
+        periodic_elements : str, optional
+            Method for handling periodic elements. One of ['exclude', 'split', or 'ignore']:
+            - 'exclude': Periodic elements will be identified and excluded from the GeoDataFrame
+            - 'split': Periodic elements will be identified and split using the ``antimeridian`` package
+            - 'ignore': No processing will be applied to periodic elements.
+        projection: ccrs.Projection, optional
+            Geographic projection used to transform polygons. Only supported when periodic_elements is set to
+            'ignore' or 'exclude'
+        cache: bool, optional
+            Flag used to select whether to cache the computed GeoDataFrame
+        override: bool, optional
+            Flag used to select whether to ignore any cached GeoDataFrame
+        engine: str, optional
+            Selects what library to use for creating a GeoDataFrame. One of ['spatialpandas', 'geopandas']. Defaults
+            to spatialpandas
+        exclude_antimeridian: bool, optional
+            Flag used to select whether to exclude polygons that cross the antimeridian (Will be deprecated)
 
         Returns
         -------
-        gdf : spatialpandas.GeoDataFrame
-            The output `GeoDataFrame` with a filled out "geometry" and 1D data column representing the geometry of the unstructured grid
+        gdf : spatialpandas.GeoDataFrame or geopandas.GeoDataFrame
+            The output ``GeoDataFrame`` with a filled out "geometry" column of polygons and a data column with the
+            same name as the ``UxDataArray`` (or named ``var`` if no name exists)
         """
 
         if self.values.ndim > 1:
@@ -152,56 +198,91 @@ class UxDataArray(xr.DataArray):
             )
 
         if self.values.size == self.uxgrid.n_face:
-            gdf = self.uxgrid.to_geodataframe(
-                override=override,
+            gdf, non_nan_polygon_indices = self.uxgrid.to_geodataframe(
+                periodic_elements=periodic_elements,
+                projection=projection,
+                project=kwargs.get("project", True),
                 cache=cache,
+                override=override,
                 exclude_antimeridian=exclude_antimeridian,
+                return_non_nan_polygon_indices=True,
+                engine=engine,
             )
 
-            if exclude_antimeridian:
-                gdf[self.name] = np.delete(
-                    self.values, self.uxgrid.antimeridian_face_indices, axis=0
+            if exclude_antimeridian is not None:
+                if exclude_antimeridian:
+                    periodic_elements = "exclude"
+                else:
+                    periodic_elements = "split"
+
+            # set a default variable name if the data array is not named
+            var_name = self.name if self.name is not None else "var"
+
+            if periodic_elements == "exclude":
+                # index data to ignore data mapped to periodic elements
+                _data = np.delete(
+                    self.values,
+                    self.uxgrid._gdf_cached_parameters["antimeridian_face_indices"],
+                    axis=0,
                 )
             else:
-                gdf[self.name] = self.values
-            return gdf
+                _data = self.values
+
+            if non_nan_polygon_indices is not None:
+                # index data to ignore NaN polygons
+                _data = _data[non_nan_polygon_indices]
+
+            gdf[var_name] = _data
 
         elif self.values.size == self.uxgrid.n_node:
             raise ValueError(
                 f"Data Variable with size {self.values.size} does not match the number of faces "
-                f"({self.uxgrid.n_face}. Current size matches the number of nodes."
+                f"({self.uxgrid.n_face}. Current size matches the number of nodes. Consider running "
+                f"``UxDataArray.topological_mean(destination='face') to aggregate the data onto the faces."
             )
-
-        # data not mapped to faces or nodes
+        elif self.values.size == self.uxgrid.n_edge:
+            raise ValueError(
+                f"Data Variable with size {self.values.size} does not match the number of faces "
+                f"({self.uxgrid.n_face}. Current size matches the number of edges."
+            )
         else:
+            # data is not mapped to
             raise ValueError(
                 f"Data Variable with size {self.values.size} does not match the number of faces "
                 f"({self.uxgrid.n_face}."
             )
 
+        return gdf
+
     def to_polycollection(
-        self, override=False, cache=True, correct_antimeridian_polygons=True
+        self,
+        periodic_elements: Optional[str] = "exclude",
+        projection: Optional[ccrs.Projection] = None,
+        return_indices: Optional[bool] = False,
+        cache: Optional[bool] = True,
+        override: Optional[bool] = False,
+        **kwargs,
     ):
-        """Constructs a ``matplotlib.collections.PolyCollection`` object with
-        polygons representing the geometry of the unstructured grid, with
-        polygons that cross the antimeridian split across the antimeridian.
+        """Constructs a ``matplotlib.collections.PolyCollection``` consisting
+        of polygons representing the faces of the current ``UxDataArray`` with
+        a face-centered data variable mapped to them.
 
         Parameters
         ----------
-        override : bool
-            Flag to recompute the ``PolyCollection`` stored under the ``uxgrid`` if one is already cached
-        cache : bool
-            Flag to indicate if the computed ``PolyCollection`` stored under the ``uxgrid`` accessor should be cached
-        correct_antimeridian_polygons: bool, Optional
-            Parameter to select whether to correct and split antimeridian polygons
-
-        Returns
-        -------
-        poly_collection : matplotlib.collections.PolyCollection
-            The output `PolyCollection` of polygons representing the geometry of the unstructured grid paired with
-            a data variable.
+        periodic_elements : str, optional
+            Method for handling periodic elements. One of ['exclude', 'split', or 'ignore']:
+            - 'exclude': Periodic elements will be identified and excluded from the GeoDataFrame
+            - 'split': Periodic elements will be identified and split using the ``antimeridian`` package
+            - 'ignore': No processing will be applied to periodic elements.
+        projection: ccrs.Projection
+            Cartopy geographic projection to use
+        return_indices: bool
+            Flag to indicate whether to return the indices of corrected polygons, if any exist
+        cache: bool
+            Flag to indicate whether to cache the computed PolyCollection
+        override: bool
+            Flag to indicate whether to override a cached PolyCollection, if it exists
         """
-
         # data is multidimensional, must be a 1D slice
         if self.values.ndim > 1:
             raise ValueError(
@@ -209,41 +290,53 @@ class UxDataArray(xr.DataArray):
                 f"for face-centered data."
             )
 
-        # face-centered data
-        if self.values.size == self.uxgrid.n_face:
-            (
-                poly_collection,
-                corrected_to_original_faces,
-            ) = self.uxgrid.to_polycollection(
-                override=override,
-                cache=cache,
-                correct_antimeridian_polygons=correct_antimeridian_polygons,
+        if self._face_centered():
+            poly_collection, corrected_to_original_faces = (
+                self.uxgrid.to_polycollection(
+                    override=override,
+                    cache=cache,
+                    periodic_elements=periodic_elements,
+                    return_indices=True,
+                    projection=projection,
+                    **kwargs,
+                )
             )
 
-            # map data with antimeridian polygons
-            if len(corrected_to_original_faces) > 0:
-                data = self.values[corrected_to_original_faces]
-
-            # no antimeridian polygons
+            if periodic_elements == "exclude":
+                # index data to ignore data mapped to periodic elements
+                _data = np.delete(
+                    self.values,
+                    self.uxgrid._poly_collection_cached_parameters[
+                        "antimeridian_face_indices"
+                    ],
+                    axis=0,
+                )
+            elif periodic_elements == "split":
+                _data = self.values[corrected_to_original_faces]
             else:
-                data = self.values
+                _data = self.values
 
-            poly_collection.set_array(data)
-            return poly_collection, corrected_to_original_faces
+            if (
+                self.uxgrid._poly_collection_cached_parameters[
+                    "non_nan_polygon_indices"
+                ]
+                is not None
+            ):
+                # index data to ignore NaN polygons
+                _data = _data[
+                    self.uxgrid._poly_collection_cached_parameters[
+                        "non_nan_polygon_indices"
+                    ]
+                ]
 
-        # node-centered data
-        elif self.values.size == self.uxgrid.n_node:
-            raise ValueError(
-                f"Data Variable with size {self.values.size} mapped on the nodes of each polygon"
-                f"not supported yet."
-            )
+            poly_collection.set_array(_data)
 
-        # data not mapped to faces or nodes
+            if return_indices:
+                return poly_collection, corrected_to_original_faces
+            else:
+                return poly_collection
         else:
-            raise ValueError(
-                f"Data Variable with size {self.values.size} does not match the number of faces "
-                f"({self.uxgrid.n_face}."
-            )
+            raise ValueError("Data variable must be face centered.")
 
     def to_dataset(
         self,
@@ -252,7 +345,7 @@ class UxDataArray(xr.DataArray):
         name: Hashable = None,
         promote_attrs: bool = False,
     ) -> UxDataset:
-        """Convert a UxDataArray to a UxDataset.
+        """Convert a ``UxDataArray`` to a ``UxDataset``.
 
         Parameters
         ----------
@@ -275,70 +368,13 @@ class UxDataArray(xr.DataArray):
 
         return uxds
 
-    def nearest_neighbor_remap(
-        self,
-        destination_obj: Union[Grid, UxDataArray, UxDataset],
-        remap_to: str = "nodes",
-        coord_type: str = "spherical",
-    ):
-        """Nearest Neighbor Remapping between a source (``UxDataArray``) and
-        destination.`.
-
-        Parameters
-        ---------
-        destination_obj : Grid, UxDataArray, UxDataset
-            Destination for remapping
-        remap_to : str, default="nodes"
-            Location of where to map data, either "nodes" or "face centers"
-        coord_type : str, default="spherical"
-            Indicates whether to remap using on spherical or cartesian coordinates
-        """
-        warn(
-            "This usage of remapping will be deprecated in a future release. It is advised to use uxds.remap.nearest_neighbor() instead.",
-            DeprecationWarning,
-        )
-
-        return self.remap.nearest_neighbor(destination_obj, remap_to, coord_type)
-
-    def inverse_distance_weighted_remap(
-        self,
-        destination_obj: Union[Grid, UxDataArray, UxDataset],
-        remap_to: str = "nodes",
-        coord_type: str = "spherical",
-        power=2,
-        k=8,
-    ):
-        """Inverse Distance Weighted Remapping between a source
-        (``UxDataArray``) and destination.`.
-
-        Parameters
-        ---------
-        destination_obj : Grid, UxDataArray, UxDataset
-            Destination for remapping
-        remap_to : str, default="nodes"
-            Location of where to map data, either "nodes" or "face centers"
-        coord_type : str, default="spherical"
-            Indicates whether to remap using on spherical or cartesian coordinates
-        power : int, default=2
-            Power parameter for inverse distance weighting. This controls how local or global the remapping is, a higher
-            power causes points that are further away to have less influence
-        k : int, default=8
-            Number of nearest neighbors to consider in the weighted calculation.
-        """
-        warn(
-            "This usage of remapping will be deprecated in a future release. It is advised to use uxds.remap.inverse_distance_weighted() instead.",
-            DeprecationWarning,
-        )
-
-        return self.remap.inverse_distance_weighted(
-            destination_obj, remap_to, coord_type, power, k
-        )
+    def to_xarray(self):
+        return xr.DataArray(self)
 
     def integrate(
         self, quadrature_rule: Optional[str] = "triangular", order: Optional[int] = 4
     ) -> UxDataArray:
-        """Computes the integral of a data variable residing on an unstructured
-        grid.
+        """Computes the integral of a data variable.
 
         Parameters
         ----------
@@ -354,11 +390,11 @@ class UxDataArray(xr.DataArray):
 
         Examples
         --------
+        Open a Uxarray dataset and compute the integral
+
         >>> import uxarray as ux
         >>> uxds = ux.open_dataset("grid.ug", "centroid_pressure_data_ug")
-
-        # Compute the integral
-        >>> integral = uxds['psi'].integrate()
+        >>> integral = uxds["psi"].integrate()
         """
         if self.values.shape[-1] == self.uxgrid.n_face:
             face_areas, face_jacobian = self.uxgrid.compute_face_areas(
@@ -389,47 +425,598 @@ class UxDataArray(xr.DataArray):
 
         return uxda
 
-    def nodal_average(self):
-        """Computes the Nodal Average of a Data Variable, which is the mean of
-        the nodes that surround each face.
+    def zonal_mean(self, lat=(-90, 90, 10), **kwargs):
+        """Compute averages along lines of constant latitude.
 
-        Can be used for remapping node-centered data to each face.
+        Parameters
+        ----------
+        lat : tuple, float, or array-like, default=(-90, 90, 10)
+            Latitude values in degrees. Can be specified as:
+            - tuple (start, end, step): Computes means at intervals of `step` in range [start, end]
+            - float: Computes mean for a single latitude
+            - array-like: Computes means for each specified latitude
+
+        Returns
+        -------
+        UxDataArray
+            Contains zonal means with a new 'latitudes' dimension and corresponding coordinates.
+            Name will be original_name + '_zonal_mean' or 'zonal_mean' if unnamed.
+
+        Examples
+        --------
+        # All latitudes from -90° to 90° at 10° intervals
+        >>> uxds["var"].zonal_mean()
+
+        # Single latitude at 30°
+        >>> uxds["var"].zonal_mean(lat=30.0)
+
+        # Range from -60° to 60° at 10° intervals
+        >>> uxds["var"].zonal_mean(lat=(-60, 60, 10))
+
+        Notes
+        -----
+        Only supported for face-centered data variables. Candidate faces are determined
+        using spherical bounding boxes - faces whose bounds contain the target latitude
+        are included in calculations.
         """
-
-        if not self._node_centered():
-            # nodal average expects node-centered data
+        if not self._face_centered():
             raise ValueError(
-                f"Data Variable must be mapped to the corner nodes of each face, with dimension "
-                f"{self.uxgrid.n_face}."
+                "Zonal mean computations are currently only supported for face-centered data variables."
             )
 
-        data = self.values
-        face_nodes = self.uxgrid.face_node_connectivity.values
-        n_nodes_per_face = self.uxgrid.n_nodes_per_face.values
+        if isinstance(lat, tuple):
+            # zonal mean over a range of latitudes
+            latitudes = np.arange(lat[0], lat[1] + lat[2], lat[2])
+            latitudes = np.clip(latitudes, -90, 90)
+        elif isinstance(lat, (float, int)):
+            # zonal mean over a single latitude
+            latitudes = [lat]
+        elif isinstance(lat, (list, np.ndarray)):
+            # zonal mean over an array of arbitrary latitudes
+            latitudes = np.asarray(lat)
+        else:
+            raise ValueError(
+                "Invalid value for 'lat' provided. Must either be a single scalar value, tuple (min_lat, max_lat, step), or array-like."
+            )
 
-        # compute the nodal average while preserving original dimensions
-        data_nodal_average = np.array(
-            [
-                np.mean(data[..., cur_face[0:n_max_nodes]], axis=-1)
-                for cur_face, n_max_nodes in zip(face_nodes, n_nodes_per_face)
-            ]
+        res = _compute_non_conservative_zonal_mean(
+            uxda=self, latitudes=latitudes, **kwargs
         )
 
-        # set `n_nodes` as final dimension
-        data_nodal_average = np.moveaxis(data_nodal_average, 0, -1)
+        dims = list(self.dims[:-1]) + ["latitudes"]
 
-        return UxDataArray(
+        uxda = UxDataArray(
+            res,
             uxgrid=self.uxgrid,
-            data=data_nodal_average,
-            dims=self.dims,
-            name=self.name + "_nodal_average" if self.name is not None else None,
-        ).rename({"n_node": "n_face"})
+            dims=dims,
+            coords={"latitudes": latitudes},
+            name=self.name + "_zonal_mean" if self.name is not None else "zonal_mean",
+            attrs={"zonal_mean": True},
+        )
+
+        return uxda
+
+    # Alias for 'zonal_mean', since this name is also commonly used.
+    zonal_average = zonal_mean
+
+    def weighted_mean(self, weights=None):
+        """Computes a weighted mean.
+
+        This function calculates the weighted mean of a variable,
+        using the specified `weights`. If no weights are provided, it will automatically select
+        appropriate weights based on whether the variable is face-centered or edge-centered. If
+        the variable is neither face nor edge-centered a warning is raised, and an unweighted mean is computed instead.
+
+        Parameters
+        ----------
+        weights : np.ndarray or None, optional
+            The weights to use for the weighted mean calculation. If `None`, the function will
+            determine weights based on the variable's association:
+                - For face-centered variables: uses `self.uxgrid.face_areas.data`
+                - For edge-centered variables: uses `self.uxgrid.edge_node_distances.data`
+            If the variable is neither face-centered nor edge-centered, a warning is raised, and
+            an unweighted mean is computed instead. User-defined weights should match the shape
+            of the data variable's last dimension.
+
+        Returns
+        -------
+        UxDataArray
+            A new `UxDataArray` object representing the weighted mean of the input variable. The
+            result is attached to the same `uxgrid` attribute as the original variable.
+
+        Example
+        -------
+        >>> weighted_mean = uxds["t2m"].weighted_mean()
+
+
+        Raises
+        ------
+        AssertionError
+            If user-defined `weights` are provided and the shape of `weights` does not match
+            the shape of the data variable's last dimension.
+
+        Warnings
+        --------
+        UserWarning
+            Raised when attempting to compute a weighted mean on a variable without associated
+            weights. An unweighted mean will be computed in this case.
+
+        Notes
+        -----
+        - The weighted mean is computed along the last dimension of the data variable, which is
+          assumed to be the geometry dimension (e.g., faces, edges, or nodes).
+        """
+        if weights is None:
+            if self._face_centered():
+                weights = self.uxgrid.face_areas.data
+            elif self._edge_centered():
+                weights = self.uxgrid.edge_node_distances.data
+            else:
+                warnings.warn(
+                    "Attempting to perform a weighted mean calculation on a variable that does not have"
+                    "associated weights. Weighted mean is only supported for face or edge centered "
+                    "variables. Performing an unweighted mean."
+                )
+        else:
+            # user-defined weights
+            assert weights.shape[-1] == self.shape[-1]
+
+        # compute the total weight
+        total_weight = weights.sum()
+
+        # compute the weighted mean, with an assumption on the index of dimension (last one is geometry)
+        weighted_mean = (self * weights).sum(axis=-1) / total_weight
+
+        # create a UxDataArray and return it
+        return UxDataArray(weighted_mean, uxgrid=self.uxgrid)
+
+    def topological_mean(
+        self,
+        destination: Literal["node", "edge", "face"],
+        **kwargs,
+    ):
+        """Performs a topological mean aggregation.
+
+        See Also
+        --------
+        numpy.mean
+        dask.array.mean
+        xarray.DataArray.mean
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``mean`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "mean", **kwargs)
+
+    def topological_min(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological min aggregation.
+
+        See Also
+        --------
+        numpy.min
+        dask.array.min
+        xarray.DataArray.min
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``min`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "min", **kwargs)
+
+    def topological_max(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological max aggregation.
+
+        See Also
+        --------
+        numpy.max
+        dask.array.max
+        xarray.DataArray.max
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``max`` applied to its data.
+        """
+
+        return _uxda_grid_aggregate(self, destination, "max", **kwargs)
+
+    def topological_median(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological median aggregation.
+
+        See Also
+        --------
+        numpy.median
+        dask.array.median
+        xarray.DataArray.median
+
+        Parameters
+        ----------
+
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``median`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "median", **kwargs)
+
+    def topological_std(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological std aggregation.
+
+        See Also
+        --------
+        numpy.std
+        dask.array.std
+        xarray.DataArray.std
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``std`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "std", **kwargs)
+
+    def topological_var(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological var aggregation.
+
+        See Also
+        --------
+        numpy.var
+        dask.array.var
+        xarray.DataArray.var
+
+        Parameters
+        ----------
+
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``var`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "var", **kwargs)
+
+    def topological_sum(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological sum aggregation.
+
+        See Also
+        --------
+        numpy.sum
+        dask.array.sum
+        xarray.DataArray.sum
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``sum`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "sum", **kwargs)
+
+    def topological_prod(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological prod aggregation.
+
+        See Also
+        --------
+        numpy.prod
+        dask.array.prod
+        xarray.DataArray.prod
+
+        Parameters
+
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``prod`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "prod", **kwargs)
+
+    def topological_all(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological all aggregation.
+
+        See Also
+        --------
+        numpy.all
+        dask.array.all
+        xarray.DataArray.all
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``all`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "all", **kwargs)
+
+    def topological_any(
+        self,
+        destination=None,
+        **kwargs,
+    ):
+        """Performs a topological any aggregation.
+
+        See Also
+        --------
+        numpy.any
+        dask.array.any
+        xarray.DataArray.any
+
+        Parameters
+        ----------
+        destination: str,
+            Destination grid dimension for Aggregation.
+
+            Node-Centered Variable:
+            - ``destination='edge'``: Aggregation is applied on the nodes that saddle each edge, with the result stored
+            on each edge
+            - ``destination='face'``: Aggregation is applied on the nodes that surround each face, with the result stored
+            on each face.
+
+            Edge-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the edges that intersect each node, with the result stored
+            on each node.
+            - ``Destination='face'``: Aggregation is applied on the edges that surround each face, with the result stored
+            on each face.
+
+            Face-Centered Variable:
+            - ``destination='node'``: Aggregation is applied on the faces that saddle each node, with the result stored
+            on each node.
+            - ``Destination='edge'``: Aggregation is applied on the faces that saddle each edge, with the result stored
+            on each edge.
+
+
+        Returns
+        -------
+        reduced: UxDataArray
+            New UxDataArray with ``any`` applied to its data.
+        """
+        return _uxda_grid_aggregate(self, destination, "any", **kwargs)
 
     def gradient(
         self, normalize: Optional[bool] = False, use_magnitude: Optional[bool] = True
     ):
-        """Computes the horizontal gradient of a data variable residing on an
-        unstructured grid.
+        """Computes the horizontal gradient of a data variable.
 
         Currently only supports gradients of face-centered data variables, with the resulting gradient being stored
         on each edge. The gradient of a node-centered data variable can be approximated by computing the nodal average
@@ -452,10 +1039,8 @@ class UxDataArray(xr.DataArray):
 
         Example
         -------
-        Face-centered variable
-        >>> uxds['var'].gradient()
-        Node-centered variable
-        >>> uxds['var'].nodal_average().gradient()
+        >>> uxds["var"].gradient()
+        >>> uxds["var"].topological_mean(destination="face").gradient()
         """
 
         if not self._face_centered():
@@ -491,7 +1076,7 @@ class UxDataArray(xr.DataArray):
         return uxda
 
     def difference(self, destination: Optional[str] = "edge"):
-        """Computes the absolute difference between a data variable.
+        """Computes the absolute difference of a data variable.
 
         The difference for a face-centered data variable can be computed on each edge using the ``edge_face_connectivity``,
         specified by ``destination='edge'``.
@@ -576,8 +1161,6 @@ class UxDataArray(xr.DataArray):
 
         return uxda
 
-        pass
-
     def _face_centered(self) -> bool:
         """Returns whether the data stored is Face Centered (i.e. contains the
         "n_face" dimension)"""
@@ -593,7 +1176,7 @@ class UxDataArray(xr.DataArray):
         "n_edge" dimension)"""
         return "n_edge" in self.dims
 
-    def isel(self, ignore_grid=False, *args, **kwargs):
+    def isel(self, ignore_grid=False, inverse_indices=False, *args, **kwargs):
         """Grid-informed implementation of xarray's ``isel`` method, which
         enables indexing across grid dimensions.
 
@@ -627,11 +1210,17 @@ class UxDataArray(xr.DataArray):
                 raise ValueError("Only one grid dimension can be sliced at a time")
 
             if "n_node" in kwargs:
-                sliced_grid = self.uxgrid.isel(n_node=kwargs["n_node"])
+                sliced_grid = self.uxgrid.isel(
+                    n_node=kwargs["n_node"], inverse_indices=inverse_indices
+                )
             elif "n_edge" in kwargs:
-                sliced_grid = self.uxgrid.isel(n_edge=kwargs["n_edge"])
+                sliced_grid = self.uxgrid.isel(
+                    n_edge=kwargs["n_edge"], inverse_indices=inverse_indices
+                )
             else:
-                sliced_grid = self.uxgrid.isel(n_face=kwargs["n_face"])
+                sliced_grid = self.uxgrid.isel(
+                    n_face=kwargs["n_face"], inverse_indices=inverse_indices
+                )
 
             return self._slice_from_grid(sliced_grid)
 
@@ -639,27 +1228,50 @@ class UxDataArray(xr.DataArray):
             # original xarray implementation for non-grid dimensions
             return super().isel(*args, **kwargs)
 
+    @classmethod
+    def from_xarray(cls, da: xr.DataArray, uxgrid: Grid, ugrid_dims: dict = None):
+        """
+        Converts a ``xarray.DataArray`` into a ``uxarray.UxDataset`` paired with a user-defined ``Grid``
+
+        Parameters
+        ----------
+        da : xr.DataArray
+            An Xarray data array containing data residing on an unstructured grid
+        uxgrid : Grid
+            ``Grid`` object representing an unstructured grid
+        ugrid_dims : dict, optional
+            A dictionary mapping data array dimensions to UGRID dimensions.
+
+        Returns
+        -------
+        cls
+            A ``ux.UxDataArray`` with data from the ``xr.DataArray` paired with a ``ux.Grid``
+        """
+        if ugrid_dims is None:
+            ugrid_dims = uxgrid._source_dims_dict
+
+        # map each dimension to its UGRID equivalent
+        ds = _map_dims_to_ugrid(da, ugrid_dims, uxgrid)
+
+        return cls(ds, uxgrid=uxgrid)
+
     def _slice_from_grid(self, sliced_grid):
         """Slices a  ``UxDataArray`` from a sliced ``Grid``, using cached
         indices to correctly slice the data variable."""
 
-        from uxarray.core.dataarray import UxDataArray
-
         if self._face_centered():
-            d_var = self.isel(
+            da_sliced = self.isel(
                 n_face=sliced_grid._ds["subgrid_face_indices"], ignore_grid=True
-            ).values
+            )
 
         elif self._edge_centered():
-            d_var = self.isel(
+            da_sliced = self.isel(
                 n_edge=sliced_grid._ds["subgrid_edge_indices"], ignore_grid=True
-            ).values
+            )
 
         elif self._node_centered():
-            d_var = (
-                self.isel(
-                    n_node=sliced_grid._ds["subgrid_node_indices"], ignore_grid=True
-                ).values,
+            da_sliced = self.isel(
+                n_node=sliced_grid._ds["subgrid_node_indices"], ignore_grid=True
             )
 
         else:
@@ -667,10 +1279,57 @@ class UxDataArray(xr.DataArray):
                 "Data variable must be either node, edge, or face centered."
             )
 
-        return UxDataArray(
-            uxgrid=sliced_grid,
-            data=d_var,
-            name=self.name,
-            dims=self.dims,
-            attrs=self.attrs,
+        return UxDataArray(da_sliced, uxgrid=sliced_grid)
+
+    def get_dual(self):
+        """Compute the dual mesh for a data array, returns a new data array
+        object.
+
+        Returns
+        --------
+        dual : uxda
+            Dual Mesh `uxda` constructed
+        """
+
+        if _check_duplicate_nodes_indices(self.uxgrid):
+            raise RuntimeError("Duplicate nodes found, cannot construct dual")
+
+        if self.uxgrid.partial_sphere_coverage:
+            warn(
+                "This mesh is partial, which could cause inconsistent results and data will be lost",
+                Warning,
+            )
+
+        # Get dual mesh node face connectivity
+        dual_node_face_conn = construct_dual(grid=self.uxgrid)
+
+        # Construct dual mesh
+        dual = self.uxgrid.from_topology(
+            self.uxgrid.face_lon.values,
+            self.uxgrid.face_lat.values,
+            dual_node_face_conn,
         )
+
+        # Dictionary to swap dimensions
+        dim_map = {"n_face": "n_node", "n_node": "n_face"}
+
+        # Get correct dimensions for the dual
+        dims = [dim_map.get(dim, dim) for dim in self.dims]
+
+        # Get the values from the data array
+        data = np.array(self.values)
+
+        # Construct the new data array
+        uxda = uxarray.UxDataArray(uxgrid=dual, data=data, dims=dims, name=self.name)
+
+        return uxda
+
+    def where(self, cond: Any, other: Any = dtypes.NA, drop: bool = False):
+        return UxDataArray(super().where(cond, other, drop), uxgrid=self.uxgrid)
+
+    where.__doc__ = xr.DataArray.where.__doc__
+
+    def fillna(self, value: Any):
+        return UxDataArray(super().fillna(value), uxgrid=self.uxgrid)
+
+    fillna.__doc__ = xr.DataArray.fillna.__doc__
