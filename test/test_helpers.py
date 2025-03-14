@@ -286,7 +286,7 @@ def test_get_cartesian_face_edge_nodes_pipeline():
 
     face_edges_lonlat = np.stack((lon, lat), axis=2)
     result = pole_point_inside_polygon(
-        'North', face_edges_xyz, face_edges_lonlat
+        1, face_edges_xyz, face_edges_lonlat
     )
 
     assert result is True
@@ -319,7 +319,7 @@ def test_get_cartesian_face_edge_nodes_filled_value():
     face_edges_lonlat = np.stack((lon, lat), axis=2)
 
     result = pole_point_inside_polygon(
-        'North', face_edges_xyz, face_edges_lonlat
+        1, face_edges_xyz, face_edges_lonlat
     )
 
     assert result is True
@@ -391,9 +391,11 @@ def test_get_lonlat_face_edge_nodes_pipeline():
     for edge in face_edges_connectivity_lonlat:
         edge_cart = [_lonlat_rad_to_xyz(*node) for node in edge]
         face_edges_connectivity_cartesian.append(edge_cart)
+    pass
+
 
     result = pole_point_inside_polygon(
-        'North', np.array(face_edges_connectivity_cartesian),np.array(face_edges_connectivity_lonlat)
+        1, np.array(face_edges_connectivity_cartesian),face_edges_connectivity_lonlat
     )
 
     assert result is True
@@ -422,7 +424,7 @@ def test_get_lonlat_face_edge_nodes_filled_value():
         face_edges_connectivity_cartesian.append(edge_cart)
 
     result = pole_point_inside_polygon(
-        'North', np.array(face_edges_connectivity_cartesian),np.array(face_edges_connectivity_lonlat)
+        1, np.array(face_edges_connectivity_cartesian),face_edges_connectivity_lonlat
     )
 
     assert result is True

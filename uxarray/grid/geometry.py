@@ -23,7 +23,6 @@ from uxarray.grid.arcs import (
     point_within_gca,
 )
 
-from uxarray.grid.coordinates import _xyz_to_lonlat_rad
 
 from uxarray.grid.intersections import (
     gca_gca_intersection,
@@ -686,24 +685,6 @@ def _convert_shells_to_polygons(shells):
             polygons.append(Polygon(cleaned_shell))
 
     return polygons
-
-
-# # TODO: If we don't actually use this one, remove it
-# def _pole_point_inside_polygon_cartesian(pole, face_edges_xyz):
-#     if isinstance(pole, str):
-#         pole = POLE_NAME_TO_INT[pole]
-#
-#     x = face_edges_xyz[:, :, 0]
-#     y = face_edges_xyz[:, :, 1]
-#     z = face_edges_xyz[:, :, 2]
-#
-#     lon, lat = _xyz_to_lonlat_rad(x, y, z)
-#
-#     face_edges_lonlat = np.stack((lon, lat), axis=2)
-#
-#     return pole_point_inside_polygon(pole, face_edges_xyz, face_edges_lonlat)
-#
-#     pass
 
 
 @njit(cache=True)
