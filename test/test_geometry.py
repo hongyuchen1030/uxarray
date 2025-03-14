@@ -14,7 +14,7 @@ from uxarray.grid.coordinates import _populate_node_latlon, _lonlat_rad_to_xyz, 
 from uxarray.grid.arcs import extreme_gca_latitude, extreme_gca_z
 from uxarray.grid.utils import _get_cartesian_faces_edge_nodes, _get_lonlat_rad_faces_edge_nodes
 
-from uxarray.grid.geometry import _populate_face_latlon_bound, _populate_bounds, _pole_point_inside_polygon_cartesian, \
+from uxarray.grid.geometry import _populate_face_latlon_bound, _populate_bounds, pole_point_inside_polygon, \
     stereographic_projection, inverse_stereographic_projection, point_in_face, haversine_distance
 
 from sklearn.metrics.pairwise import haversine_distances
@@ -77,10 +77,18 @@ def test_pole_point_inside_polygon_from_vertice_north():
                                [vertices[2], vertices[3]],
                                [vertices[3], vertices[0]]])
 
-    result = _pole_point_inside_polygon_cartesian('North', face_edge_cart)
+    x = face_edge_cart[:, :, 0]
+    y = face_edge_cart[:, :, 1]
+    z = face_edge_cart[:, :, 2]
+
+    lon, lat = _xyz_to_lonlat_rad(x, y, z)
+
+    face_edges_lonlat = np.stack((lon, lat), axis=2)
+
+    result = pole_point_inside_polygon('North', face_edge_cart, face_edges_lonlat)
     assert result, "North pole should be inside the polygon"
 
-    result = _pole_point_inside_polygon_cartesian('South', face_edge_cart)
+    result = pole_point_inside_polygon('South', face_edge_cart, face_edges_lonlat)
     assert not result, "South pole should not be inside the polygon"
 
 
@@ -95,10 +103,19 @@ def test_pole_point_inside_polygon_from_vertice_south():
                                [vertices[1], vertices[2]],
                                [vertices[2], vertices[0]]])
 
-    result = _pole_point_inside_polygon_cartesian('North', face_edge_cart)
+    x = face_edge_cart[:, :, 0]
+    y = face_edge_cart[:, :, 1]
+    z = face_edge_cart[:, :, 2]
+
+    lon, lat = _xyz_to_lonlat_rad(x, y, z)
+
+    face_edges_lonlat = np.stack((lon, lat), axis=2)
+
+
+    result = pole_point_inside_polygon('North', face_edge_cart, face_edges_lonlat)
     assert not result, "North pole should not be inside the polygon"
 
-    result = _pole_point_inside_polygon_cartesian('South', face_edge_cart)
+    result = pole_point_inside_polygon('South', face_edge_cart, face_edges_lonlat)
     assert result, "South pole should be inside the polygon"
 
 
@@ -115,10 +132,18 @@ def test_pole_point_inside_polygon_from_vertice_pole():
                                [vertices[2], vertices[3]],
                                [vertices[3], vertices[0]]])
 
-    result = _pole_point_inside_polygon_cartesian('North', face_edge_cart)
+    x = face_edge_cart[:, :, 0]
+    y = face_edge_cart[:, :, 1]
+    z = face_edge_cart[:, :, 2]
+
+    lon, lat = _xyz_to_lonlat_rad(x, y, z)
+
+    face_edges_lonlat = np.stack((lon, lat), axis=2)
+
+    result = pole_point_inside_polygon('North', face_edge_cart, face_edges_lonlat)
     assert result, "North pole should be inside the polygon"
 
-    result = _pole_point_inside_polygon_cartesian('South', face_edge_cart)
+    result = pole_point_inside_polygon('South', face_edge_cart, face_edges_lonlat)
     assert not result, "South pole should not be inside the polygon"
 
 
@@ -135,7 +160,15 @@ def test_pole_point_inside_polygon_from_vertice_cross():
                                [vertices[2], vertices[3]],
                                [vertices[3], vertices[0]]])
 
-    result = _pole_point_inside_polygon_cartesian('North', face_edge_cart)
+    x = face_edge_cart[:, :, 0]
+    y = face_edge_cart[:, :, 1]
+    z = face_edge_cart[:, :, 2]
+
+    lon, lat = _xyz_to_lonlat_rad(x, y, z)
+
+    face_edges_lonlat = np.stack((lon, lat), axis=2)
+
+    result = pole_point_inside_polygon('North', face_edge_cart,face_edges_lonlat)
     assert result, "North pole should be inside the polygon"
 
 

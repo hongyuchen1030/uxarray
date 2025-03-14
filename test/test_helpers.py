@@ -12,7 +12,7 @@ from uxarray.constants import INT_DTYPE, INT_FILL_VALUE
 from uxarray.grid.coordinates import _lonlat_rad_to_xyz, _normalize_xyz, _xyz_to_lonlat_rad
 from uxarray.grid.arcs import point_within_gca, _angle_of_2_vectors, in_between
 from uxarray.grid.utils import _get_cartesian_faces_edge_nodes, _get_lonlat_rad_faces_edge_nodes
-from uxarray.grid.geometry import pole_point_inside_polygon, _pole_point_inside_polygon_cartesian
+from uxarray.grid.geometry import pole_point_inside_polygon
 
 try:
     import constants
@@ -273,11 +273,20 @@ def test_get_cartesian_face_edge_nodes_pipeline():
     node_y = grid.node_y.values
     node_z = grid.node_z.values
 
-    face_edges_connectivity_cartesian = _get_cartesian_faces_edge_nodes(face_node_conn, n_face, n_max_face_edges,
+    faces_edges_connectivity_cartesian = _get_cartesian_faces_edge_nodes(face_node_conn, n_face, n_max_face_edges,
                                                                         node_x, node_y, node_z)
 
-    result = _pole_point_inside_polygon_cartesian(
-        'North', face_edges_connectivity_cartesian[0]
+    face_edges_xyz = faces_edges_connectivity_cartesian[0]
+
+    x = face_edges_xyz[:, :, 0]
+    y = face_edges_xyz[:, :, 1]
+    z = face_edges_xyz[:, :, 2]
+
+    lon, lat = _xyz_to_lonlat_rad(x, y, z)
+
+    face_edges_lonlat = np.stack((lon, lat), axis=2)
+    result = pole_point_inside_polygon(
+        'North', face_edges_xyz, face_edges_lonlat
     )
 
     assert result is True
@@ -297,11 +306,20 @@ def test_get_cartesian_face_edge_nodes_filled_value():
     node_y = grid.node_y.values
     node_z = grid.node_z.values
 
-    face_edges_connectivity_cartesian = _get_cartesian_faces_edge_nodes(face_node_conn, n_face, n_max_face_edges,
+    faces_edges_connectivity_cartesian = _get_cartesian_faces_edge_nodes(face_node_conn, n_face, n_max_face_edges,
                                                                         node_x, node_y, node_z)
+    face_edges_xyz = faces_edges_connectivity_cartesian[0]
 
-    result = _pole_point_inside_polygon_cartesian(
-        'North', face_edges_connectivity_cartesian[0]
+    x = face_edges_xyz[:, :, 0]
+    y = face_edges_xyz[:, :, 1]
+    z = face_edges_xyz[:, :, 2]
+
+    lon, lat = _xyz_to_lonlat_rad(x, y, z)
+
+    face_edges_lonlat = np.stack((lon, lat), axis=2)
+
+    result = pole_point_inside_polygon(
+        'North', face_edges_xyz, face_edges_lonlat
     )
 
     assert result is True
@@ -374,8 +392,8 @@ def test_get_lonlat_face_edge_nodes_pipeline():
         edge_cart = [_lonlat_rad_to_xyz(*node) for node in edge]
         face_edges_connectivity_cartesian.append(edge_cart)
 
-    result = _pole_point_inside_polygon_cartesian(
-        'North', np.array(face_edges_connectivity_cartesian)
+    result = pole_point_inside_polygon(
+        'North', np.array(face_edges_connectivity_cartesian),np.array(face_edges_connectivity_lonlat)
     )
 
     assert result is True
@@ -403,8 +421,8 @@ def test_get_lonlat_face_edge_nodes_filled_value():
         edge_cart = [_lonlat_rad_to_xyz(*node) for node in edge]
         face_edges_connectivity_cartesian.append(edge_cart)
 
-    result = _pole_point_inside_polygon_cartesian(
-        'North', np.array(face_edges_connectivity_cartesian)
+    result = pole_point_inside_polygon(
+        'North', np.array(face_edges_connectivity_cartesian),np.array(face_edges_connectivity_lonlat)
     )
 
     assert result is True
