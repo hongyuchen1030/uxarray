@@ -708,7 +708,27 @@ def _convert_shells_to_polygons(shells):
 
 @njit(cache=True)
 def pole_point_inside_polygon(pole, face_edges_xyz, face_edges_lonlat):
-    """Determines if a pole point is inside a polygon."""
+    """Determine if a pole point is inside a polygon.
+
+    Parameters
+    ----------
+    pole : int
+        Pole indicator. Use 1 for North Pole and -1 for South Pole.
+    face_edges_xyz : numpy.ndarray
+        An array of shape [n_edges, 2, 3] containing the polygon edges in Cartesian coordinates.
+    face_edges_lonlat : numpy.ndarray
+        An array of shape [n_edges, 2, 2] containing the polygon edges in longitude/latitude coordinates.
+
+    Returns
+    -------
+    bool
+        True if the pole point is inside the polygon, otherwise False.
+
+    Raises
+    ------
+    ValueError
+        If the input pole is not 1 (North) or -1 (South).
+    """
 
     if pole != 1 and pole != -1:
         raise ValueError("Pole must be 1 (North) or -1 (South)")

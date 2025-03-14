@@ -85,10 +85,10 @@ def test_pole_point_inside_polygon_from_vertice_north():
 
     face_edges_lonlat = np.stack((lon, lat), axis=2)
 
-    result = pole_point_inside_polygon('North', face_edge_cart, face_edges_lonlat)
+    result = pole_point_inside_polygon(1, face_edge_cart,face_edges_lonlat )
     assert result, "North pole should be inside the polygon"
 
-    result = pole_point_inside_polygon('South', face_edge_cart, face_edges_lonlat)
+    result = pole_point_inside_polygon(-1, face_edge_cart,face_edges_lonlat)
     assert not result, "South pole should not be inside the polygon"
 
 
@@ -112,10 +112,10 @@ def test_pole_point_inside_polygon_from_vertice_south():
     face_edges_lonlat = np.stack((lon, lat), axis=2)
 
 
-    result = pole_point_inside_polygon('North', face_edge_cart, face_edges_lonlat)
+    result = pole_point_inside_polygon(1, face_edge_cart, face_edges_lonlat)
     assert not result, "North pole should not be inside the polygon"
 
-    result = pole_point_inside_polygon('South', face_edge_cart, face_edges_lonlat)
+    result = pole_point_inside_polygon(-1, face_edge_cart, face_edges_lonlat)
     assert result, "South pole should be inside the polygon"
 
 
@@ -140,10 +140,10 @@ def test_pole_point_inside_polygon_from_vertice_pole():
 
     face_edges_lonlat = np.stack((lon, lat), axis=2)
 
-    result = pole_point_inside_polygon('North', face_edge_cart, face_edges_lonlat)
+    result = pole_point_inside_polygon(1, face_edge_cart, face_edges_lonlat)
     assert result, "North pole should be inside the polygon"
 
-    result = pole_point_inside_polygon('South', face_edge_cart, face_edges_lonlat)
+    result = pole_point_inside_polygon(-1, face_edge_cart, face_edges_lonlat)
     assert not result, "South pole should not be inside the polygon"
 
 
@@ -168,7 +168,7 @@ def test_pole_point_inside_polygon_from_vertice_cross():
 
     face_edges_lonlat = np.stack((lon, lat), axis=2)
 
-    result = pole_point_inside_polygon('North', face_edge_cart,face_edges_lonlat)
+    result = pole_point_inside_polygon(1, face_edge_cart,face_edges_lonlat)
     assert result, "North pole should be inside the polygon"
 
 
