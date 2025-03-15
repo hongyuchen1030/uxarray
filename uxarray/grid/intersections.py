@@ -1,14 +1,11 @@
 import numpy as np
 from uxarray.constants import MACHINE_EPSILON, ERROR_TOLERANCE, INT_DTYPE
-from uxarray.grid.utils import (
-    _angle_of_2_vectors,
-)
 from uxarray.grid.arcs import (
     in_between,
     extreme_gca_z,
     point_within_gca,
 )
-from uxarray.utils.computing import allclose, cross, norm
+from uxarray.utils.computing import allclose, cross, norm, isclose
 
 
 from numba import njit, prange
@@ -318,6 +315,14 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     angle_w0w1 = np.arctan2(np.linalg.norm(w0w1_normal), np.dot(w0_xyz, w1_xyz))
     angle_v0v1 = np.arctan2(np.linalg.norm(v0v1_normal), np.dot(v0_xyz, v1_xyz))
 
+    # None of the angles should be exactly 180 degree
+    if (np.allclose(angle_w0w1, np.pi, rtol=0.0, atol=MACHINE_EPSILON) or
+            np.allclose(angle_v0v1, np.pi, rtol=0.0, atol=MACHINE_EPSILON)):
+        raise ValueError(
+            "The input Great Circle Arc spans exactly 180 degrees, which can correspond to multiple planes. "
+            "Consider breaking the Great Circle Arc into two smaller arcs."
+        )
+
     if angle_w0w1 > np.pi:
         w0_xyz, w1_xyz = w1_xyz, w0_xyz
 
@@ -331,17 +336,13 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     res = np.empty((2, 3))
     count = 0
 
-    # Check if the two GCAs are parallel
     if allclose(cross_norms, 0.0, atol=MACHINE_EPSILON):
-        if point_within_gca(v0_xyz, w0_xyz, w1_xyz):
-            res[count, :] = v0_xyz
-            count += 1
-
-        if point_within_gca(v1_xyz, w0_xyz, w1_xyz):
-            res[count, :] = v1_xyz
-            count += 1
-
-        return res[:count, :]
+        # Handle three cases:
+        # 1. No overlap -> empty result.
+        # 2. Single common vertex.
+        # 3. Overlapping interval -> return endpoints of the overlap.
+        res_parallel = _handle_parallel_gca_gca(w0_xyz, w1_xyz, v0_xyz, v1_xyz)
+        return res_parallel
 
     # Normalize the cross_norms
     cross_norms = cross_norms / norm(cross_norms)
@@ -349,20 +350,19 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     x2_xyz = -x1_xyz
 
     # Check intersection points
-    if point_within_gca(x1_xyz, w0_xyz, w1_xyz) and point_within_gca(
+    if _intersection_within_gca_interval(x1_xyz, w0_xyz, w1_xyz) and _intersection_within_gca_interval(
         x1_xyz, v0_xyz, v1_xyz
     ):
         res[count, :] = x1_xyz
         count += 1
 
-    if point_within_gca(x2_xyz, w0_xyz, w1_xyz) and point_within_gca(
+    if _intersection_within_gca_interval(x2_xyz, w0_xyz, w1_xyz) and _intersection_within_gca_interval(
         x2_xyz, v0_xyz, v1_xyz
     ):
         res[count, :] = x2_xyz
         count += 1
 
     return res[:count, :]
-
 
 @njit(cache=True)
 def gca_const_lat_intersection(gca_cart, const_z):
@@ -432,8 +432,8 @@ def gca_const_lat_intersection(gca_cart, const_z):
     p1 = np.array([p1_x, p1_y, const_z])
     p2 = np.array([p2_x, p2_y, const_z])
 
-    p1_intersects_gca = point_within_gca(p1, gca_cart[0], gca_cart[1])
-    p2_intersects_gca = point_within_gca(p2, gca_cart[0], gca_cart[1])
+    p1_intersects_gca = _intersection_within_gca_interval(p1, gca_cart[0], gca_cart[1])
+    p2_intersects_gca = _intersection_within_gca_interval(p2, gca_cart[0], gca_cart[1])
 
     if p1_intersects_gca and p2_intersects_gca:
         res[0] = p1
@@ -458,3 +458,102 @@ def get_number_of_intersections(arr):
         return 1
     else:
         return 2
+
+
+
+@njit(cache=True)
+def _handle_parallel_gca_gca(w0_xyz, w1_xyz, v0_xyz, v1_xyz):
+    """
+    Helper function to handle the parallel case for two parallel Great Circle Arc
+   Two GCAs will only be parallel if they're on the same plane, and there will be three cases:
+   1. The intervals never touch, so no intersection point.
+   2. They share one common vertex (since they're less than 180 degrees).
+   3. They have an overlapped interval, which means infinitely many intersection points,
+      but we capture the two endpoints of the overlap.
+    """
+
+    pts = np.empty((4, 3))
+    count = 0
+
+    # Check if endpoints of the second arc (v) lie within the first arc (w)
+    if _intersection_within_gca_interval(v0_xyz, w0_xyz, w1_xyz):
+        pts[count, :] = v0_xyz
+        count += 1
+    if _intersection_within_gca_interval(v1_xyz, w0_xyz, w1_xyz):
+        pts[count, :] = v1_xyz
+        count += 1
+
+    # Check if endpoints of the first arc (w) lie within the second arc (v)
+    if _intersection_within_gca_interval(w0_xyz, v0_xyz, v1_xyz):
+        pts[count, :] = w0_xyz
+        count += 1
+    if _intersection_within_gca_interval(w1_xyz, v0_xyz, v1_xyz):
+        pts[count, :] = w1_xyz
+        count += 1
+
+    # Deduplicate the candidate points
+    if count == 0:
+        return pts[:0, :]  # Return an empty array if no intersections found.
+
+    # Since endpoints are copied from the same vertices,
+    # duplicates will be exactly equal.
+    unique_count = 0
+    for i in range(count):
+        duplicate = False
+        for j in range(i):
+            if (pts[i, 0] == pts[j, 0] and
+                pts[i, 1] == pts[j, 1] and
+                pts[i, 2] == pts[j, 2]):
+                duplicate = True
+                break
+        if not duplicate:
+            pts[unique_count, :] = pts[i, :]
+            unique_count += 1
+
+    return pts[:unique_count, :]
+
+@njit(cache=True)
+def _intersection_within_gca_interval(pt_xyz, gca_a_xyz, gca_b_xyz):
+    """
+    Check if an intersection point lies on a given Great Circle Arc (GCA) interval that the point is already know to
+    be on, considering the smaller arc of the circle. Handles the anti-meridian case as well. This is for internal
+    usage for the `gca_gca_intersection` or `gca_constLat_intersection` only, It inherits the same ideas as the
+    `point_within_gca` but tailored for `gca_gca_intersection` and  `gca_constLat_intersection` or some others by
+    knowing the intersection point has to be in the same plane defined by `gca_a_xyz` `gca_b_xyz`.
+
+    Parameters
+    ----------
+    pt_xyz : numpy.ndarray
+        Cartesian coordinates of the intersetion point between two great circle arc. It has to be in the same plane
+        defined by `gca_a_xyz` `gca_b_xyz`.
+    gca_a_xyz : numpy.ndarray
+        Cartesian coordinates of the first endpoint of the Great Circle Arc.
+    gca_b_xyz : numpy.ndarray
+        Cartesian coordinates of the second endpoint of the Great Circle Arc.
+
+    Returns
+    -------
+    bool
+        True if the intersection point lies within the specified GCA interval, False otherwise.
+
+    Notes
+    -----
+    - It assumes the input represents the smaller arc of the Great Circle.
+    """
+
+    # No need to check if the point lie on the same plane defined by the GCA here.
+    #  Check if the point lies within the Great Circle Arc interval
+    pt_a = gca_a_xyz - pt_xyz
+    pt_b = gca_b_xyz - pt_xyz
+
+    # Use the dot product to determine the sign of the angle between pt_a and pt_b
+    cos_theta = np.dot(pt_a, pt_b)
+
+    # Return True if the point lies within the interval (smaller arc)
+    if cos_theta < 0:
+        return True
+    elif isclose(cos_theta, 0.0, atol=MACHINE_EPSILON):
+        # set error tolerance to 0.0
+        return True
+    else:
+        return False
