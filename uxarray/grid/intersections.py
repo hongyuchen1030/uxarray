@@ -417,11 +417,15 @@ def gca_const_lat_intersection(gca_cart, const_z):
 
     nx, ny, nz = n
 
-    s_tilde = np.sqrt(nx**2 + ny**2 - (nx**2 + ny**2 + nz**2) * const_z**2)
-    p1_x = -(1.0 / (nx**2 + ny**2)) * (const_z * nx * nz + s_tilde * ny)
-    p2_x = -(1.0 / (nx**2 + ny**2)) * (const_z * nx * nz - s_tilde * ny)
-    p1_y = -(1.0 / (nx**2 + ny**2)) * (const_z * ny * nz - s_tilde * nx)
-    p2_y = -(1.0 / (nx**2 + ny**2)) * (const_z * ny * nz + s_tilde * nx)
+    nx_sqr_ny_sqr = nx**2 + ny**2
+    n_norm = nx_sqr_ny_sqr +  nz**2
+
+
+    s_tilde = np.sqrt(nx_sqr_ny_sqr - n_norm * const_z**2)
+    p1_x = -(1.0 / nx_sqr_ny_sqr) * (const_z * nx * nz + s_tilde * ny)
+    p2_x = -(1.0 / nx_sqr_ny_sqr) * (const_z * nx * nz - s_tilde * ny)
+    p1_y = -(1.0 / nx_sqr_ny_sqr) * (const_z * ny * nz - s_tilde * nx)
+    p2_y = -(1.0 / nx_sqr_ny_sqr) * (const_z * ny * nz + s_tilde * nx)
 
     p1 = np.array([p1_x, p1_y, const_z])
     p2 = np.array([p2_x, p2_y, const_z])
