@@ -312,8 +312,11 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     v0_xyz = gca_b_xyz[0]
     v1_xyz = gca_b_xyz[1]
 
-    angle_w0w1 = _angle_of_2_vectors(w0_xyz, w1_xyz)
-    angle_v0v1 = _angle_of_2_vectors(v0_xyz, v1_xyz)
+    w0w1_normal = cross(w0_xyz, w1_xyz)
+    v0v1_normal = cross(v0_xyz, v1_xyz)
+
+    angle_w0w1 = np.arctan2(np.linalg.norm(w0w1_normal), np.dot(w0_xyz, w1_xyz))
+    angle_v0v1 = np.arctan2(np.linalg.norm(v0v1_normal), np.dot(v0_xyz, v1_xyz))
 
     if angle_w0w1 > np.pi:
         w0_xyz, w1_xyz = w1_xyz, w0_xyz
@@ -321,9 +324,8 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     if angle_v0v1 > np.pi:
         v0_xyz, v1_xyz = v1_xyz, v0_xyz
 
-    w0w1_norm = cross(w0_xyz, w1_xyz)
-    v0v1_norm = cross(v0_xyz, v1_xyz)
-    cross_norms = cross(w0w1_norm, v0v1_norm)
+
+    cross_norms = cross(w0w1_normal, v0v1_normal)
 
     # Initialize result array and counter
     res = np.empty((2, 3))
