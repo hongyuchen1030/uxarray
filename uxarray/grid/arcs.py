@@ -6,7 +6,6 @@ from uxarray.grid.coordinates import (
     _normalize_xyz_scalar,
 )
 
-from uxarray.grid.utils import _angle_of_2_vectors
 
 from uxarray.constants import ERROR_TOLERANCE, MACHINE_EPSILON
 
@@ -91,6 +90,7 @@ def point_within_gca(pt_xyz, gca_a_xyz, gca_b_xyz):
         return True
     else:
         return False
+
 
 @njit(cache=True)
 def in_between(p, q, r) -> bool:

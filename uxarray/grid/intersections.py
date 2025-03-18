@@ -3,7 +3,6 @@ from uxarray.constants import MACHINE_EPSILON, ERROR_TOLERANCE, INT_DTYPE
 from uxarray.grid.arcs import (
     in_between,
     extreme_gca_z,
-    point_within_gca,
 )
 from uxarray.utils.computing import allclose, cross, norm, isclose
 
@@ -316,8 +315,9 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     angle_v0v1 = np.arctan2(np.linalg.norm(v0v1_normal), np.dot(v0_xyz, v1_xyz))
 
     # None of the angles should be exactly 180 degree
-    if (np.allclose(angle_w0w1, np.pi, rtol=0.0, atol=MACHINE_EPSILON) or
-            np.allclose(angle_v0v1, np.pi, rtol=0.0, atol=MACHINE_EPSILON)):
+    if np.allclose(angle_w0w1, np.pi, rtol=0.0, atol=MACHINE_EPSILON) or np.allclose(
+        angle_v0v1, np.pi, rtol=0.0, atol=MACHINE_EPSILON
+    ):
         raise ValueError(
             "The input Great Circle Arc spans exactly 180 degrees, which can correspond to multiple planes. "
             "Consider breaking the Great Circle Arc into two smaller arcs."
@@ -328,7 +328,6 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
 
     if angle_v0v1 > np.pi:
         v0_xyz, v1_xyz = v1_xyz, v0_xyz
-
 
     cross_norms = cross(w0w1_normal, v0v1_normal)
 
@@ -350,19 +349,20 @@ def gca_gca_intersection(gca_a_xyz, gca_b_xyz):
     x2_xyz = -x1_xyz
 
     # Check intersection points
-    if _intersection_within_gca_interval(x1_xyz, w0_xyz, w1_xyz) and _intersection_within_gca_interval(
-        x1_xyz, v0_xyz, v1_xyz
-    ):
+    if _intersection_within_gca_interval(
+        x1_xyz, w0_xyz, w1_xyz
+    ) and _intersection_within_gca_interval(x1_xyz, v0_xyz, v1_xyz):
         res[count, :] = x1_xyz
         count += 1
 
-    if _intersection_within_gca_interval(x2_xyz, w0_xyz, w1_xyz) and _intersection_within_gca_interval(
-        x2_xyz, v0_xyz, v1_xyz
-    ):
+    if _intersection_within_gca_interval(
+        x2_xyz, w0_xyz, w1_xyz
+    ) and _intersection_within_gca_interval(x2_xyz, v0_xyz, v1_xyz):
         res[count, :] = x2_xyz
         count += 1
 
     return res[:count, :]
+
 
 @njit(cache=True)
 def gca_const_lat_intersection(gca_cart, const_z):
@@ -420,8 +420,7 @@ def gca_const_lat_intersection(gca_cart, const_z):
     nx, ny, nz = n
 
     nx_sqr_ny_sqr = nx**2 + ny**2
-    n_norm = nx_sqr_ny_sqr +  nz**2
-
+    n_norm = nx_sqr_ny_sqr + nz**2
 
     s_tilde = np.sqrt(nx_sqr_ny_sqr - n_norm * const_z**2)
     p1_x = -(1.0 / nx_sqr_ny_sqr) * (const_z * nx * nz + s_tilde * ny)
@@ -460,16 +459,15 @@ def get_number_of_intersections(arr):
         return 2
 
 
-
 @njit(cache=True)
 def _handle_parallel_gca_gca(w0_xyz, w1_xyz, v0_xyz, v1_xyz):
     """
-    Helper function to handle the parallel case for two parallel Great Circle Arc
-   Two GCAs will only be parallel if they're on the same plane, and there will be three cases:
-   1. The intervals never touch, so no intersection point.
-   2. They share one common vertex (since they're less than 180 degrees).
-   3. They have an overlapped interval, which means infinitely many intersection points,
-      but we capture the two endpoints of the overlap.
+     Helper function to handle the parallel case for two parallel Great Circle Arc
+    Two GCAs will only be parallel if they're on the same plane, and there will be three cases:
+    1. The intervals never touch, so no intersection point.
+    2. They share one common vertex (since they're less than 180 degrees).
+    3. They have an overlapped interval, which means infinitely many intersection points,
+       but we capture the two endpoints of the overlap.
     """
 
     pts = np.empty((4, 3))
@@ -501,9 +499,11 @@ def _handle_parallel_gca_gca(w0_xyz, w1_xyz, v0_xyz, v1_xyz):
     for i in range(count):
         duplicate = False
         for j in range(i):
-            if (pts[i, 0] == pts[j, 0] and
-                pts[i, 1] == pts[j, 1] and
-                pts[i, 2] == pts[j, 2]):
+            if (
+                pts[i, 0] == pts[j, 0]
+                and pts[i, 1] == pts[j, 1]
+                and pts[i, 2] == pts[j, 2]
+            ):
                 duplicate = True
                 break
         if not duplicate:
@@ -511,6 +511,7 @@ def _handle_parallel_gca_gca(w0_xyz, w1_xyz, v0_xyz, v1_xyz):
             unique_count += 1
 
     return pts[:unique_count, :]
+
 
 @njit(cache=True)
 def _intersection_within_gca_interval(pt_xyz, gca_a_xyz, gca_b_xyz):
