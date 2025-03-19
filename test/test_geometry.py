@@ -214,7 +214,7 @@ def _max_latitude_rad_iterative(gca_cart):
             b_lonlat[0] - c_lonlat[0]) >= ERROR_TOLERANCE:
         max_lat = -np.pi
         v_b, v_c = max_section
-        angle_v1_v2_rad = ux.grid.arcs._angle_of_2_vectors(v_b, v_c)
+        angle_v1_v2_rad = ux.grid.utils._angle_of_2_vectors(v_b, v_c)
         v0 = ac_utils.cross_fma(v_temp, v_b)
         v0 = _normalize_xyz(*v0.tolist())
         avg_angle_rad = angle_v1_v2_rad / 10.0
@@ -302,7 +302,7 @@ def _min_latitude_rad_iterative(gca_cart):
             b_lonlat[0] - c_lonlat[0]) >= ERROR_TOLERANCE:
         min_lat = np.pi
         v_b, v_c = min_section
-        angle_v1_v2_rad = ux.grid.arcs._angle_of_2_vectors(v_b, v_c)
+        angle_v1_v2_rad = ux.grid.utils._angle_of_2_vectors(v_b, v_c)
         v0 = ac_utils.cross_fma(v_temp, v_b)
         v0 = np.array(_normalize_xyz(*v0.tolist()))
         avg_angle_rad = angle_v1_v2_rad / 10.0
