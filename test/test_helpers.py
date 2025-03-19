@@ -10,8 +10,8 @@ import uxarray as ux
 from uxarray.grid.connectivity import _replace_fill_values
 from uxarray.constants import INT_DTYPE, INT_FILL_VALUE
 from uxarray.grid.coordinates import _lonlat_rad_to_xyz, _normalize_xyz, _xyz_to_lonlat_rad
-from uxarray.grid.arcs import point_within_gca, _angle_of_2_vectors, in_between
-from uxarray.grid.utils import _get_cartesian_faces_edge_nodes, _get_lonlat_rad_faces_edge_nodes
+from uxarray.grid.arcs import point_within_gca, in_between
+from uxarray.grid.utils import _get_cartesian_faces_edge_nodes, _get_lonlat_rad_faces_edge_nodes, _angle_of_2_vectors
 from uxarray.grid.geometry import pole_point_inside_polygon
 
 try:
